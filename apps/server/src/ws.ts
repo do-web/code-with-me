@@ -736,6 +736,13 @@ const WsRpcLayer = WsRpcGroup.toLayer(
           }),
           { "rpc.aggregate": "server" },
         ),
+
+      [WS_METHODS.subscribeProviderAccountStats]: (_input) =>
+        observeRpcStreamEffect(
+          WS_METHODS.subscribeProviderAccountStats,
+          Effect.succeed(Stream.empty),
+          { "rpc.aggregate": "provider" },
+        ),
     });
   }),
 );

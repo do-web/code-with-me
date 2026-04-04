@@ -69,6 +69,7 @@ import {
   ServerUpsertKeybindingResult,
 } from "./server";
 import { ServerSettings, ServerSettingsError, ServerSettingsPatch } from "./settings";
+import { SkillsListError, SkillsListResult, SkillsRefreshError } from "./skill";
 
 export const WS_METHODS = {
   // Project registry methods
@@ -109,6 +110,10 @@ export const WS_METHODS = {
   serverGetSettings: "server.getSettings",
   serverUpdateSettings: "server.updateSettings",
 
+  // Skill methods
+  skillsList: "skills.list",
+  skillsRefresh: "skills.refresh",
+
   // Streaming subscriptions
   subscribeOrchestrationDomainEvents: "subscribeOrchestrationDomainEvents",
   subscribeTerminalEvents: "subscribeTerminalEvents",
@@ -143,6 +148,18 @@ export const WsServerUpdateSettingsRpc = Rpc.make(WS_METHODS.serverUpdateSetting
   payload: Schema.Struct({ patch: ServerSettingsPatch }),
   success: ServerSettings,
   error: ServerSettingsError,
+});
+
+export const WsSkillsListRpc = Rpc.make(WS_METHODS.skillsList, {
+  payload: Schema.Struct({}),
+  success: SkillsListResult,
+  error: SkillsListError,
+});
+
+export const WsSkillsRefreshRpc = Rpc.make(WS_METHODS.skillsRefresh, {
+  payload: Schema.Struct({}),
+  success: SkillsListResult,
+  error: SkillsRefreshError,
 });
 
 export const WsProjectsSearchEntriesRpc = Rpc.make(WS_METHODS.projectsSearchEntries, {
@@ -327,6 +344,8 @@ export const WsRpcGroup = RpcGroup.make(
   WsServerUpsertKeybindingRpc,
   WsServerGetSettingsRpc,
   WsServerUpdateSettingsRpc,
+  WsSkillsListRpc,
+  WsSkillsRefreshRpc,
   WsProjectsSearchEntriesRpc,
   WsProjectsWriteFileRpc,
   WsShellOpenInEditorRpc,

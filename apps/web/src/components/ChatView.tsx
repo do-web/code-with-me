@@ -1509,7 +1509,11 @@ export default function ChatView({ threadId }: ChatViewProps) {
 
       const query = composerTrigger.query.trim().toLowerCase();
       if (!query) return allItems;
-      return allItems.filter((item) => item.label.slice(1).toLowerCase().includes(query));
+      return allItems.filter(
+        (item) =>
+          item.label.slice(1).toLowerCase().includes(query) ||
+          item.description.toLowerCase().includes(query),
+      );
     }
 
     return searchableModelOptions

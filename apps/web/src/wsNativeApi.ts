@@ -1,4 +1,4 @@
-import { type ContextMenuItem, type NativeApi } from "@t3tools/contracts";
+import { type ContextMenuItem, type NativeApi } from "@codewithme/contracts";
 
 import { showContextMenuFallback } from "./contextMenuFallback";
 import { resetServerStateForTests } from "./rpc/serverState";
@@ -88,6 +88,10 @@ export function createWsNativeApi(): NativeApi {
       upsertKeybinding: rpcClient.server.upsertKeybinding,
       getSettings: rpcClient.server.getSettings,
       updateSettings: rpcClient.server.updateSettings,
+    },
+    skills: {
+      list: rpcClient.skills.list,
+      refresh: rpcClient.skills.refresh,
     },
     orchestration: {
       getSnapshot: rpcClient.orchestration.getSnapshot,

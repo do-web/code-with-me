@@ -6,7 +6,7 @@ import {
   ORCHESTRATION_WS_METHODS,
   type ServerSettingsPatch,
   WS_METHODS,
-} from "@t3tools/contracts";
+} from "@codewithme/contracts";
 import { Effect, Stream } from "effect";
 
 import { type WsRpcProtocolClient } from "./rpc/protocol";
@@ -84,6 +84,10 @@ export interface WsRpcClient {
     ) => ReturnType<RpcUnaryMethod<typeof WS_METHODS.serverUpdateSettings>>;
     readonly subscribeConfig: RpcStreamMethod<typeof WS_METHODS.subscribeServerConfig>;
     readonly subscribeLifecycle: RpcStreamMethod<typeof WS_METHODS.subscribeServerLifecycle>;
+  };
+  readonly skills: {
+    readonly list: RpcUnaryNoArgMethod<typeof WS_METHODS.skillsList>;
+    readonly refresh: RpcUnaryNoArgMethod<typeof WS_METHODS.skillsRefresh>;
   };
   readonly orchestration: {
     readonly getSnapshot: RpcUnaryNoArgMethod<typeof ORCHESTRATION_WS_METHODS.getSnapshot>;
@@ -183,6 +187,10 @@ export function createWsRpcClient(transport = new WsTransport()): WsRpcClient {
         transport.subscribe((client) => client[WS_METHODS.subscribeServerConfig]({}), listener),
       subscribeLifecycle: (listener) =>
         transport.subscribe((client) => client[WS_METHODS.subscribeServerLifecycle]({}), listener),
+    },
+    skills: {
+      list: () => transport.request((client) => client[WS_METHODS.skillsList]({})),
+      refresh: () => transport.request((client) => client[WS_METHODS.skillsRefresh]({})),
     },
     orchestration: {
       getSnapshot: () =>

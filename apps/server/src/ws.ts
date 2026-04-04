@@ -14,11 +14,13 @@ import {
   ProjectSearchEntriesError,
   ProjectWriteFileError,
   OrchestrationReplayEventsError,
+  SkillsListError,
+  SkillsRefreshError,
   ThreadId,
   type TerminalEvent,
   WS_METHODS,
   WsRpcGroup,
-} from "@t3tools/contracts";
+} from "@codewithme/contracts";
 import { clamp } from "effect/Number";
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
 import { RpcSerialization, RpcServer } from "effect/unstable/rpc";
@@ -46,6 +48,7 @@ import { WorkspaceEntries } from "./workspace/Services/WorkspaceEntries";
 import { WorkspaceFileSystem } from "./workspace/Services/WorkspaceFileSystem";
 import { WorkspacePathOutsideRootError } from "./workspace/Services/WorkspacePaths";
 import { ProjectSetupScriptRunner } from "./project/Services/ProjectSetupScriptRunner";
+import { SkillDiscovery } from "./skillDiscovery";
 
 const WsRpcLayer = WsRpcGroup.toLayer(
   Effect.gen(function* () {
@@ -65,6 +68,7 @@ const WsRpcLayer = WsRpcGroup.toLayer(
     const workspaceEntries = yield* WorkspaceEntries;
     const workspaceFileSystem = yield* WorkspaceFileSystem;
     const projectSetupScriptRunner = yield* ProjectSetupScriptRunner;
+    const skillDiscovery = yield* SkillDiscovery;
 
     const serverCommandId = (tag: string) =>
       CommandId.makeUnsafe(`server:${tag}:${crypto.randomUUID()}`);
@@ -525,6 +529,30 @@ const WsRpcLayer = WsRpcGroup.toLayer(
         observeRpcEffect(WS_METHODS.serverUpdateSettings, serverSettings.updateSettings(patch), {
           "rpc.aggregate": "server",
         }),
+      [WS_METHODS.skillsList]: (_input) =>
+        observeRpcEffect(
+          WS_METHODS.skillsList,
+          skillDiscovery.list.pipe(
+            Effect.map((skills) => ({ skills })),
+            Effect.mapError(
+              (cause) =>
+                new SkillsListError({ message: `Failed to list skills: ${String(cause)}` }),
+            ),
+          ),
+          { "rpc.aggregate": "skills" },
+        ),
+      [WS_METHODS.skillsRefresh]: (_input) =>
+        observeRpcEffect(
+          WS_METHODS.skillsRefresh,
+          skillDiscovery.refresh.pipe(
+            Effect.map((skills) => ({ skills })),
+            Effect.mapError(
+              (cause) =>
+                new SkillsRefreshError({ message: `Failed to refresh skills: ${String(cause)}` }),
+            ),
+          ),
+          { "rpc.aggregate": "skills" },
+        ),
       [WS_METHODS.projectsSearchEntries]: (input) =>
         observeRpcEffect(
           WS_METHODS.projectsSearchEntries,

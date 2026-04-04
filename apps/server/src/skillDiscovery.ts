@@ -1,28 +1,29 @@
-import { Effect, Ref } from "effect";
+import { Effect, Layer, Ref, ServiceMap } from "effect";
 import type { SkillEntry } from "@codewithme/contracts";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import * as os from "node:os";
-import { parse as parseYaml } from "yaml";
 
 // ---------------------------------------------------------------------------
 // Frontmatter parsing
 // ---------------------------------------------------------------------------
 
-function parseFrontmatter(content: string): { name?: string; description?: string } | null {
+function parseFrontmatter(content: string): { name: string; description: string } | null {
   const match = /^---\r?\n([\s\S]*?)\r?\n---/.exec(content);
   if (!match?.[1]) return null;
-  try {
-    const parsed: unknown = parseYaml(match[1]);
-    if (typeof parsed !== "object" || parsed === null) return null;
-    const obj = parsed as Record<string, unknown>;
-    return {
-      name: typeof obj.name === "string" ? obj.name.trim() : undefined,
-      description: typeof obj.description === "string" ? obj.description.trim() : undefined,
-    };
-  } catch {
-    return null;
+  const block = match[1];
+  let name: string | undefined;
+  let description: string | undefined;
+  for (const line of block.split(/\r?\n/)) {
+    const kv = /^(\w+):\s*(.+)$/.exec(line);
+    if (!kv) continue;
+    const key = kv[1];
+    const value = (kv[2] ?? "").trim().replace(/^["']|["']$/g, "");
+    if (key === "name") name = value;
+    else if (key === "description") description = value;
   }
+  if (!name || !description) return null;
+  return { name, description };
 }
 
 // ---------------------------------------------------------------------------
@@ -36,7 +37,7 @@ async function readSkillFile(
   try {
     const content = await fs.readFile(skillMdPath, "utf-8");
     const fm = parseFrontmatter(content);
-    if (!fm?.name || !fm?.description) return null;
+    if (!fm) return null;
     return { name: fm.name, description: fm.description, source };
   } catch {
     return null;
@@ -113,29 +114,30 @@ async function scanAllSkills(): Promise<SkillEntry[]> {
 // Effect service
 // ---------------------------------------------------------------------------
 
-export class SkillDiscovery extends Effect.Service<SkillDiscovery>()("SkillDiscovery", {
-  effect: Effect.gen(function* () {
-    const cacheRef = yield* Ref.make<SkillEntry[]>([]);
+interface SkillDiscoveryShape {
+  readonly list: Effect.Effect<SkillEntry[]>;
+  readonly refresh: Effect.Effect<SkillEntry[]>;
+}
 
-    // Initial load
-    yield* Effect.tryPromise({
-      try: () => scanAllSkills(),
-      catch: (error) => new Error(`Initial skill scan failed: ${String(error)}`),
-    }).pipe(Effect.flatMap((skills) => Ref.set(cacheRef, skills)));
+export class SkillDiscovery extends ServiceMap.Service<SkillDiscovery, SkillDiscoveryShape>()(
+  "codewithme/skills/SkillDiscovery",
+) {}
 
-    const list = Ref.get(cacheRef);
+const makeSkillDiscovery: Effect.Effect<SkillDiscoveryShape> = Effect.gen(function* () {
+  const cacheRef = yield* Ref.make<SkillEntry[]>([]);
 
-    const refresh = Effect.gen(function* () {
-      const skills = yield* Effect.tryPromise({
-        try: () => scanAllSkills(),
-        catch: (error) => new Error(`Skill refresh failed: ${String(error)}`),
-      });
-      yield* Ref.set(cacheRef, skills);
-      return skills;
-    });
+  // Initial load — best effort, failure silently ignored
+  yield* Effect.promise(() => scanAllSkills().catch(() => [] as SkillEntry[])).pipe(
+    Effect.flatMap((skills) => Ref.set(cacheRef, skills)),
+  );
 
-    return { list, refresh };
-  }),
-}) {}
+  const list: Effect.Effect<SkillEntry[]> = Ref.get(cacheRef);
 
-export const SkillDiscoveryLive = SkillDiscovery.Default;
+  const refresh: Effect.Effect<SkillEntry[]> = Effect.promise(() =>
+    scanAllSkills().catch(() => [] as SkillEntry[]),
+  ).pipe(Effect.flatMap((skills) => Ref.set(cacheRef, skills).pipe(Effect.map(() => skills))));
+
+  return { list, refresh };
+});
+
+export const SkillDiscoveryLive = Layer.effect(SkillDiscovery, makeSkillDiscovery);

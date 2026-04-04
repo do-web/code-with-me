@@ -1500,6 +1500,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
         id: `skill:${s.name}`,
         type: "skill" as const,
         name: s.name,
+        source: s.source,
         label: `/${s.name}`,
         description: s.description,
       }));

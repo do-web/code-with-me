@@ -107,7 +107,8 @@ async function scanMarketplacePlugins(): Promise<SkillEntry[]> {
       continue;
     }
     for (const plugin of pluginNames) {
-      for (const subdir of ["agents", "commands"]) {
+      for (const subdir of ["agents", "commands"] as const) {
+        const source: SkillEntry["source"] = subdir === "agents" ? "agent" : "command";
         const dir = path.join(pluginsDir, plugin, subdir);
         let files: string[];
         try {
@@ -118,7 +119,7 @@ async function scanMarketplacePlugins(): Promise<SkillEntry[]> {
         for (const file of files) {
           if (!file.endsWith(".md")) continue;
           const filePath = path.join(dir, file);
-          const entry = await readSkillFile(filePath, "plugin");
+          const entry = await readSkillFile(filePath, source);
           if (entry) {
             skills.push(entry);
           } else {
@@ -130,7 +131,7 @@ async function scanMarketplacePlugins(): Promise<SkillEntry[]> {
                 skills.push({
                   name: file.replace(/\.md$/, ""),
                   description: fm.description,
-                  source: "plugin",
+                  source,
                 });
               }
             } catch {

@@ -108,7 +108,7 @@ const SKILL_SOURCE_ICON = {
 
 function SkillSourceIcon({ source }: { source: SkillSource }) {
   const Icon = SKILL_SOURCE_ICON[source];
-  return <Icon className="size-4 text-muted-foreground/80" />;
+  return <Icon className="size-4 shrink-0 text-muted-foreground" />;
 }
 
 const ComposerCommandMenuItem = memo(function ComposerCommandMenuItem(props: {
@@ -136,22 +136,24 @@ const ComposerCommandMenuItem = memo(function ComposerCommandMenuItem(props: {
         props.onSelect(props.item);
       }}
     >
-      {props.item.type === "path" ? (
-        <VscodeEntryIcon
-          pathValue={props.item.path}
-          kind={props.item.pathKind}
-          theme={props.resolvedTheme}
-        />
-      ) : null}
-      {props.item.type === "slash-command" ? (
-        <BotIcon className="size-4 text-muted-foreground/80" />
-      ) : null}
-      {props.item.type === "model" ? (
-        <Badge variant="outline" className="px-1.5 py-0 text-[10px]">
-          model
-        </Badge>
-      ) : null}
-      {props.item.type === "skill" ? <SkillSourceIcon source={props.item.source} /> : null}
+      <span className="flex w-5 shrink-0 items-center justify-center">
+        {props.item.type === "path" ? (
+          <VscodeEntryIcon
+            pathValue={props.item.path}
+            kind={props.item.pathKind}
+            theme={props.resolvedTheme}
+          />
+        ) : null}
+        {props.item.type === "slash-command" ? (
+          <BotIcon className="size-4 text-muted-foreground" />
+        ) : null}
+        {props.item.type === "model" ? (
+          <Badge variant="outline" className="px-1.5 py-0 text-[10px]">
+            model
+          </Badge>
+        ) : null}
+        {props.item.type === "skill" ? <SkillSourceIcon source={props.item.source} /> : null}
+      </span>
       <span className="flex min-w-0 items-center gap-1.5 truncate">
         <span className="truncate">{props.item.label}</span>
       </span>

@@ -5,10 +5,10 @@ import type {
   ServerProviderModel,
   ServerProviderAuth,
   ServerProviderState,
-} from "@t3tools/contracts";
+} from "@codewithme/contracts";
 import { Cache, Duration, Effect, Equal, Layer, Option, Result, Schema, Stream } from "effect";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
-import { decodeJsonResult } from "@t3tools/shared/schemaJson";
+import { decodeJsonResult } from "@codewithme/shared/schemaJson";
 import { query as claudeQuery } from "@anthropic-ai/claude-agent-sdk";
 
 import {
@@ -25,7 +25,7 @@ import {
 import { makeManagedServerProvider } from "../makeManagedServerProvider";
 import { ClaudeProvider } from "../Services/ClaudeProvider";
 import { ServerSettingsService } from "../../serverSettings";
-import { ServerSettingsError } from "@t3tools/contracts";
+import { ServerSettingsError } from "@codewithme/contracts";
 
 const PROVIDER = "claudeAgent" as const;
 const BUILT_IN_MODELS: ReadonlyArray<ServerProviderModel> = [
@@ -255,6 +255,39 @@ function findAuthMethod(value: unknown): Option.Option<string> {
   );
 }
 
+// ── Email detection ────────────────────────────────────────────────
+
+/** Keys that directly hold an email identifier. */
+const EMAIL_KEYS = ["email", "user_email", "userEmail", "emailAddress"] as const;
+
+/** Keys whose value may be a nested object containing email info. */
+const EMAIL_CONTAINER_KEYS = ["account", "user", "session"] as const;
+
+/**
+ * Walk an unknown parsed JSON value looking for an email address,
+ * returning the first match as an `Option`.
+ */
+function findEmail(value: unknown): Option.Option<string> {
+  if (globalThis.Array.isArray(value)) {
+    return Option.firstSomeOf(value.map(findEmail));
+  }
+
+  return asRecord(value).pipe(
+    Option.flatMap((record) => {
+      const direct = Option.firstSomeOf(
+        EMAIL_KEYS.map((key) =>
+          asNonEmptyString(record[key]).pipe(Option.filter((v) => v.includes("@"))),
+        ),
+      );
+      if (Option.isSome(direct)) return direct;
+
+      return Option.firstSomeOf(
+        EMAIL_CONTAINER_KEYS.map((key) => asRecord(record[key]).pipe(Option.flatMap(findEmail))),
+      );
+    }),
+  );
+}
+
 /**
  * Try to extract a subscription type from the `claude auth status` JSON
  * output. This is a zero-cost operation on data we already have.
@@ -271,6 +304,12 @@ function extractClaudeAuthMethodFromOutput(result: CommandResult): string | unde
   const parsed = decodeUnknownJson(result.stdout.trim());
   if (Result.isFailure(parsed)) return undefined;
   return Option.getOrUndefined(findAuthMethod(parsed.success));
+}
+
+function extractEmailFromOutput(result: CommandResult): string | undefined {
+  const parsed = decodeUnknownJson(result.stdout.trim());
+  if (Result.isFailure(parsed)) return undefined;
+  return Option.getOrUndefined(findEmail(parsed.success));
 }
 
 // ── Dynamic model capability adjustment ─────────────────────────────
@@ -411,7 +450,7 @@ const probeClaudeCapabilities = (binaryPath: string) => {
       },
     });
     const init = await q.initializationResult();
-    return { subscriptionType: init.account?.subscriptionType };
+    return { subscriptionType: init.account?.subscriptionType, email: init.account?.email };
   }).pipe(
     Effect.ensuring(
       Effect.sync(() => {
@@ -439,7 +478,11 @@ const runClaudeCommand = Effect.fn("runClaudeCommand")(function* (args: Readonly
 });
 
 export const checkClaudeProviderStatus = Effect.fn("checkClaudeProviderStatus")(function* (
-  resolveSubscriptionType?: (binaryPath: string) => Effect.Effect<string | undefined>,
+  resolveAccountProbe?: (
+    binaryPath: string,
+  ) => Effect.Effect<
+    { subscriptionType: string | undefined; email: string | undefined } | undefined
+  >,
 ): Effect.fn.Return<
   ServerProvider,
   ServerSettingsError,
@@ -463,7 +506,7 @@ export const checkClaudeProviderStatus = Effect.fn("checkClaudeProviderStatus")(
         version: null,
         status: "warning",
         auth: { status: "unknown" },
-        message: "Claude is disabled in T3 Code settings.",
+        message: "Claude is disabled in CodeWithMe settings.",
       },
     });
   }
@@ -545,14 +588,24 @@ export const checkClaudeProviderStatus = Effect.fn("checkClaudeProviderStatus")(
 
   let subscriptionType: string | undefined;
   let authMethod: string | undefined;
+  let email: string | undefined;
 
   if (Result.isSuccess(authProbe) && Option.isSome(authProbe.success)) {
     subscriptionType = extractSubscriptionTypeFromOutput(authProbe.success.value);
     authMethod = extractClaudeAuthMethodFromOutput(authProbe.success.value);
+    email = extractEmailFromOutput(authProbe.success.value);
   }
 
-  if (!subscriptionType && resolveSubscriptionType) {
-    subscriptionType = yield* resolveSubscriptionType(claudeSettings.binaryPath);
+  if (resolveAccountProbe && (!subscriptionType || !email)) {
+    const accountProbe = yield* resolveAccountProbe(claudeSettings.binaryPath);
+    if (accountProbe) {
+      if (!subscriptionType && accountProbe.subscriptionType) {
+        subscriptionType = accountProbe.subscriptionType;
+      }
+      if (!email && accountProbe.email) {
+        email = accountProbe.email;
+      }
+    }
   }
 
   const resolvedModels = adjustModelsForSubscription(models, subscriptionType);
@@ -609,6 +662,7 @@ export const checkClaudeProviderStatus = Effect.fn("checkClaudeProviderStatus")(
       auth: {
         ...parsed.auth,
         ...(authMetadata ? authMetadata : {}),
+        ...(email ? { email } : {}),
       },
       ...(parsed.message ? { message: parsed.message } : {}),
     },
@@ -621,15 +675,14 @@ export const ClaudeProviderLive = Layer.effect(
     const serverSettings = yield* ServerSettingsService;
     const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
 
-    const subscriptionProbeCache = yield* Cache.make({
+    const accountProbeCache = yield* Cache.make({
       capacity: 1,
       timeToLive: Duration.minutes(5),
-      lookup: (binaryPath: string) =>
-        probeClaudeCapabilities(binaryPath).pipe(Effect.map((r) => r?.subscriptionType)),
+      lookup: (binaryPath: string) => probeClaudeCapabilities(binaryPath),
     });
 
     const checkProvider = checkClaudeProviderStatus((binaryPath) =>
-      Cache.get(subscriptionProbeCache, binaryPath),
+      Cache.get(accountProbeCache, binaryPath),
     ).pipe(
       Effect.provideService(ServerSettingsService, serverSettings),
       Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),

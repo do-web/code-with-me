@@ -199,7 +199,10 @@ import {
   useServerAvailableEditors,
   useServerConfig,
   useServerKeybindings,
+  useServerProviders,
 } from "~/rpc/serverState";
+import { useProviderAccountStats } from "~/rpc/providerAccountStats";
+import { getProviderSnapshot } from "../providerModels";
 
 const ATTACHMENT_PREVIEW_HANDOFF_TTL_MS = 5000;
 const IMAGE_SIZE_LIMIT_LABEL = `${Math.round(PROVIDER_SEND_TURN_MAX_IMAGE_BYTES / (1024 * 1024))}MB`;
@@ -883,6 +886,12 @@ export default function ChatView({ threadId }: ChatViewProps) {
     () => deriveLatestContextWindowSnapshot(activeThread?.activities ?? []),
     [activeThread?.activities],
   );
+  const serverProviders = useServerProviders();
+  const activeProviderKind = activeThread?.modelSelection?.provider ?? null;
+  const activeServerProvider = activeProviderKind
+    ? (getProviderSnapshot(serverProviders, activeProviderKind) ?? null)
+    : null;
+  const activeAccountStats = useProviderAccountStats(activeProviderKind ?? "codex");
   useEffect(() => {
     setMountedTerminalThreadIds((currentThreadIds) => {
       const nextThreadIds = reconcileMountedTerminalThreadIds({
@@ -4471,7 +4480,11 @@ export default function ChatView({ threadId }: ChatViewProps) {
                         className="flex shrink-0 flex-nowrap items-center justify-end gap-2"
                       >
                         {activeContextWindow ? (
-                          <ContextWindowMeter usage={activeContextWindow} />
+                          <ContextWindowMeter
+                            usage={activeContextWindow}
+                            accountStats={activeAccountStats}
+                            serverProvider={activeServerProvider}
+                          />
                         ) : null}
                         {isPreparingWorktree ? (
                           <span className="text-muted-foreground/70 text-xs">

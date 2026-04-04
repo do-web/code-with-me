@@ -9,12 +9,13 @@ import {
   type ServerProvider,
   type ServerProviderUpdatedPayload,
   type ServerSettings,
-} from "@t3tools/contracts";
+} from "@codewithme/contracts";
 import { Atom } from "effect/unstable/reactivity";
 import { useCallback, useRef } from "react";
 
 import type { WsRpcClient } from "../wsRpcClient";
 import { appAtomRegistry, resetAppAtomRegistryForTests } from "./atomRegistry";
+import { applyProviderAccountStatsUpdate } from "./providerAccountStats";
 
 export type ServerConfigUpdateSource = ServerConfigStreamEvent["type"];
 
@@ -26,7 +27,7 @@ export interface ServerConfigUpdatedNotification {
 
 type ServerStateClient = Pick<
   WsRpcClient["server"],
-  "getConfig" | "subscribeConfig" | "subscribeLifecycle"
+  "getConfig" | "subscribeConfig" | "subscribeLifecycle" | "subscribeProviderAccountStats"
 >;
 
 function makeStateAtom<A>(label: string, initialValue: A) {
@@ -176,6 +177,9 @@ export function startServerStateSync(client: ServerStateClient): () => void {
     }),
     client.subscribeConfig((event) => {
       applyServerConfigEvent(event);
+    }),
+    client.subscribeProviderAccountStats((event) => {
+      applyProviderAccountStatsUpdate(event.payload);
     }),
   ];
 

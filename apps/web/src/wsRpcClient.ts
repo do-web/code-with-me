@@ -84,6 +84,9 @@ export interface WsRpcClient {
     ) => ReturnType<RpcUnaryMethod<typeof WS_METHODS.serverUpdateSettings>>;
     readonly subscribeConfig: RpcStreamMethod<typeof WS_METHODS.subscribeServerConfig>;
     readonly subscribeLifecycle: RpcStreamMethod<typeof WS_METHODS.subscribeServerLifecycle>;
+    readonly subscribeProviderAccountStats: RpcStreamMethod<
+      typeof WS_METHODS.subscribeProviderAccountStats
+    >;
   };
   readonly skills: {
     readonly list: RpcUnaryNoArgMethod<typeof WS_METHODS.skillsList>;
@@ -187,6 +190,11 @@ export function createWsRpcClient(transport = new WsTransport()): WsRpcClient {
         transport.subscribe((client) => client[WS_METHODS.subscribeServerConfig]({}), listener),
       subscribeLifecycle: (listener) =>
         transport.subscribe((client) => client[WS_METHODS.subscribeServerLifecycle]({}), listener),
+      subscribeProviderAccountStats: (listener) =>
+        transport.subscribe(
+          (client) => client[WS_METHODS.subscribeProviderAccountStats]({}),
+          listener,
+        ),
     },
     skills: {
       list: () => transport.request((client) => client[WS_METHODS.skillsList]({})),

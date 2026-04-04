@@ -1,5 +1,5 @@
 import { Effect, Exit, PubSub, Scope, Stream } from "effect";
-import { WS_METHODS, WsRpcGroup } from "@t3tools/contracts";
+import { WS_METHODS, WsRpcGroup } from "@codewithme/contracts";
 import { RpcSerialization, RpcServer } from "effect/unstable/rpc";
 
 type RpcServerInstance = RpcServer.RpcServer<any>;
@@ -28,6 +28,7 @@ const STREAM_METHODS = new Set<string>([
   WS_METHODS.subscribeTerminalEvents,
   WS_METHODS.subscribeServerConfig,
   WS_METHODS.subscribeServerLifecycle,
+  WS_METHODS.subscribeProviderAccountStats,
 ]);
 
 const ALL_RPC_METHODS = Array.from(WsRpcGroup.requests.keys());

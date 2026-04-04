@@ -18,11 +18,12 @@ import {
   OrchestrationThreadActivity,
   ProviderInteractionMode,
   RuntimeMode,
+  type SkillEntry,
   TerminalOpenInput,
-} from "@t3tools/contracts";
-import { applyClaudePromptEffortPrefix, normalizeModelSlug } from "@t3tools/shared/model";
-import { projectScriptCwd, projectScriptRuntimeEnv } from "@t3tools/shared/projectScripts";
-import { truncate } from "@t3tools/shared/String";
+} from "@codewithme/contracts";
+import { applyClaudePromptEffortPrefix, normalizeModelSlug } from "@codewithme/shared/model";
+import { projectScriptCwd, projectScriptRuntimeEnv } from "@codewithme/shared/projectScripts";
+import { truncate } from "@codewithme/shared/String";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useDebouncedValue } from "@tanstack/react-pacer";
@@ -97,9 +98,11 @@ import {
   ChevronLeftIcon,
   ChevronRightIcon,
   CircleAlertIcon,
+  FileIcon,
   ListTodoIcon,
   LockIcon,
   LockOpenIcon,
+  PaperclipIcon,
   XIcon,
 } from "lucide-react";
 import { Button } from "./ui/button";
@@ -595,14 +598,19 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const prompt = composerDraft.prompt;
   const composerImages = composerDraft.images;
   const composerTerminalContexts = composerDraft.terminalContexts;
+  const [composerFiles, setComposerFiles] = useState<{ id: string; name: string; file: File }[]>(
+    [],
+  );
+  const composerFileInputRef = useRef<HTMLInputElement | null>(null);
   const composerSendState = useMemo(
     () =>
       deriveComposerSendState({
         prompt,
         imageCount: composerImages.length,
+        fileCount: composerFiles.length,
         terminalContexts: composerTerminalContexts,
       }),
-    [composerImages.length, composerTerminalContexts, prompt],
+    [composerFiles.length, composerImages.length, composerTerminalContexts, prompt],
   );
   const nonPersistedComposerImageIds = composerDraft.nonPersistedImageIds;
   const setComposerDraftPrompt = useComposerDraftStore((store) => store.setPrompt);
@@ -671,6 +679,15 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const [planSidebarOpen, setPlanSidebarOpen] = useState(false);
   const [isComposerFooterCompact, setIsComposerFooterCompact] = useState(false);
   const [isComposerPrimaryActionsCompact, setIsComposerPrimaryActionsCompact] = useState(false);
+  const [skills, setSkills] = useState<readonly SkillEntry[]>([]);
+  useEffect(() => {
+    const api = readNativeApi();
+    if (!api) return;
+    void api.skills
+      .list()
+      .then((result) => setSkills(result.skills))
+      .catch(() => {});
+  }, []);
   // Tracks whether the user explicitly dismissed the sidebar for the active turn.
   const planSidebarDismissedForTurnRef = useRef<string | null>(null);
   // When set, the thread-change reset effect will open the sidebar instead of closing it.
@@ -1478,13 +1495,20 @@ export default function ChatView({ threadId }: ChatViewProps) {
           description: "Switch this thread back to normal chat mode",
         },
       ] satisfies ReadonlyArray<Extract<ComposerCommandItem, { type: "slash-command" }>>;
+
+      const skillItems: ComposerCommandItem[] = skills.map((s) => ({
+        id: `skill:${s.name}`,
+        type: "skill" as const,
+        name: s.name,
+        label: `/${s.name}`,
+        description: s.description,
+      }));
+
+      const allItems: ComposerCommandItem[] = [...slashCommandItems, ...skillItems];
+
       const query = composerTrigger.query.trim().toLowerCase();
-      if (!query) {
-        return [...slashCommandItems];
-      }
-      return slashCommandItems.filter(
-        (item) => item.command.includes(query) || item.label.slice(1).includes(query),
-      );
+      if (!query) return allItems;
+      return allItems.filter((item) => item.label.slice(1).toLowerCase().includes(query));
     }
 
     return searchableModelOptions
@@ -1503,7 +1527,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
         label: name,
         description: `${providerLabel} · ${slug}`,
       }));
-  }, [composerTrigger, searchableModelOptions, workspaceEntries]);
+  }, [composerTrigger, searchableModelOptions, skills, workspaceEntries]);
   const composerMenuOpen = Boolean(composerTrigger);
   const activeComposerMenuItem = useMemo(
     () =>
@@ -2691,51 +2715,54 @@ export default function ChatView({ threadId }: ChatViewProps) {
     toggleTerminalVisibility,
   ]);
 
-  const addComposerImages = (files: File[]) => {
+  const addComposerAttachments = (files: File[]) => {
     if (!activeThreadId || files.length === 0) return;
 
     if (pendingUserInputs.length > 0) {
       toastManager.add({
         type: "error",
-        title: "Attach images after answering plan questions.",
+        title: "Attach files after answering plan questions.",
       });
       return;
     }
 
     const nextImages: ComposerImageAttachment[] = [];
+    const nextFiles: { id: string; name: string; file: File }[] = [];
     let nextImageCount = composerImagesRef.current.length;
     let error: string | null = null;
     for (const file of files) {
-      if (!file.type.startsWith("image/")) {
-        error = `Unsupported file type for '${file.name}'. Please attach image files only.`;
-        continue;
+      if (file.type.startsWith("image/")) {
+        if (file.size > PROVIDER_SEND_TURN_MAX_IMAGE_BYTES) {
+          error = `'${file.name}' exceeds the ${IMAGE_SIZE_LIMIT_LABEL} attachment limit.`;
+          continue;
+        }
+        if (nextImageCount >= PROVIDER_SEND_TURN_MAX_ATTACHMENTS) {
+          error = `You can attach up to ${PROVIDER_SEND_TURN_MAX_ATTACHMENTS} images per message.`;
+          break;
+        }
+        const previewUrl = URL.createObjectURL(file);
+        nextImages.push({
+          type: "image",
+          id: randomUUID(),
+          name: file.name || "image",
+          mimeType: file.type,
+          sizeBytes: file.size,
+          previewUrl,
+          file,
+        });
+        nextImageCount += 1;
+      } else {
+        nextFiles.push({ id: randomUUID(), name: file.name, file });
       }
-      if (file.size > PROVIDER_SEND_TURN_MAX_IMAGE_BYTES) {
-        error = `'${file.name}' exceeds the ${IMAGE_SIZE_LIMIT_LABEL} attachment limit.`;
-        continue;
-      }
-      if (nextImageCount >= PROVIDER_SEND_TURN_MAX_ATTACHMENTS) {
-        error = `You can attach up to ${PROVIDER_SEND_TURN_MAX_ATTACHMENTS} images per message.`;
-        break;
-      }
-
-      const previewUrl = URL.createObjectURL(file);
-      nextImages.push({
-        type: "image",
-        id: randomUUID(),
-        name: file.name || "image",
-        mimeType: file.type,
-        sizeBytes: file.size,
-        previewUrl,
-        file,
-      });
-      nextImageCount += 1;
     }
 
     if (nextImages.length === 1 && nextImages[0]) {
       addComposerImage(nextImages[0]);
     } else if (nextImages.length > 1) {
       addComposerImagesToDraft(nextImages);
+    }
+    if (nextFiles.length > 0) {
+      setComposerFiles((prev) => [...prev, ...nextFiles]);
     }
     setThreadError(activeThreadId, error);
   };
@@ -2749,12 +2776,8 @@ export default function ChatView({ threadId }: ChatViewProps) {
     if (files.length === 0) {
       return;
     }
-    const imageFiles = files.filter((file) => file.type.startsWith("image/"));
-    if (imageFiles.length === 0) {
-      return;
-    }
     event.preventDefault();
-    addComposerImages(imageFiles);
+    addComposerAttachments(files);
   };
 
   const onComposerDragEnter = (event: React.DragEvent<HTMLDivElement>) => {
@@ -2798,7 +2821,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
     dragDepthRef.current = 0;
     setIsDragOverComposer(false);
     const files = Array.from(event.dataTransfer.files);
-    addComposerImages(files);
+    addComposerAttachments(files);
     focusComposer();
   };
 
@@ -2860,6 +2883,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
     } = deriveComposerSendState({
       prompt: promptForSend,
       imageCount: composerImages.length,
+      fileCount: composerFiles.length,
       terminalContexts: composerTerminalContexts,
     });
     if (showPlanFollowUpPrompt && activeProposedPlan) {
@@ -2929,9 +2953,28 @@ export default function ChatView({ threadId }: ChatViewProps) {
     beginLocalDispatch({ preparingWorktree: Boolean(baseBranchForWorktree) });
 
     const composerImagesSnapshot = [...composerImages];
+    const composerFilesSnapshot = [...composerFiles];
+    setComposerFiles([]);
     const composerTerminalContextsSnapshot = [...sendableComposerTerminalContexts];
+
+    // Read non-image file contents and prepend to prompt
+    let fileContentPrefix = "";
+    if (composerFilesSnapshot.length > 0) {
+      const fileContents = await Promise.all(
+        composerFilesSnapshot.map(async (f) => {
+          try {
+            const text = await f.file.text();
+            return `--- ${f.name} ---\n${text}\n--- end ${f.name} ---`;
+          } catch {
+            return `--- ${f.name} ---\n[Could not read file]\n--- end ${f.name} ---`;
+          }
+        }),
+      );
+      fileContentPrefix = fileContents.join("\n\n") + "\n\n";
+    }
+
     const messageTextForSend = appendTerminalContextsToPrompt(
-      promptForSend,
+      fileContentPrefix + promptForSend,
       composerTerminalContextsSnapshot,
     );
     const messageIdForSend = newMessageId();
@@ -3735,6 +3778,24 @@ export default function ChatView({ threadId }: ChatViewProps) {
         }
         return;
       }
+      if (item.type === "skill") {
+        const replacement = `/${item.name} `;
+        const replacementRangeEnd = extendReplacementRangeForTrailingSpace(
+          snapshot.value,
+          trigger.rangeEnd,
+          replacement,
+        );
+        const applied = applyPromptReplacement(
+          trigger.rangeStart,
+          replacementRangeEnd,
+          replacement,
+          { expectedText: snapshot.value.slice(trigger.rangeStart, replacementRangeEnd) },
+        );
+        if (applied) {
+          setComposerHighlightedItemId(null);
+        }
+        return;
+      }
       onProviderModelSelect(item.provider, item.model);
       const applied = applyPromptReplacement(trigger.rangeStart, trigger.rangeEnd, "", {
         expectedText: snapshot.value.slice(trigger.rangeStart, trigger.rangeEnd),
@@ -4094,7 +4155,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
 
                     {!isComposerApprovalState &&
                       pendingUserInputs.length === 0 &&
-                      composerImages.length > 0 && (
+                      (composerImages.length > 0 || composerFiles.length > 0) && (
                         <div className="mb-3 flex flex-wrap gap-2">
                           {composerImages.map((image) => (
                             <div
@@ -4154,6 +4215,28 @@ export default function ChatView({ threadId }: ChatViewProps) {
                                 className="absolute right-1 top-1 bg-background/80 hover:bg-background/90"
                                 onClick={() => removeComposerImage(image.id)}
                                 aria-label={`Remove ${image.name}`}
+                              >
+                                <XIcon />
+                              </Button>
+                            </div>
+                          ))}
+                          {composerFiles.map((f) => (
+                            <div
+                              key={f.id}
+                              className="relative flex h-16 items-center gap-1.5 overflow-hidden rounded-lg border border-border/80 bg-background px-2"
+                            >
+                              <FileIcon className="size-4 shrink-0 text-muted-foreground/70" />
+                              <span className="max-w-24 truncate text-[11px] text-muted-foreground">
+                                {f.name}
+                              </span>
+                              <Button
+                                variant="ghost"
+                                size="icon-xs"
+                                className="absolute right-1 top-1 bg-background/80 hover:bg-background/90"
+                                onClick={() =>
+                                  setComposerFiles((prev) => prev.filter((x) => x.id !== f.id))
+                                }
+                                aria-label={`Remove ${f.name}`}
                               >
                                 <XIcon />
                               </Button>
@@ -4226,6 +4309,29 @@ export default function ChatView({ threadId }: ChatViewProps) {
                             : "gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:min-w-max sm:overflow-visible",
                         )}
                       >
+                        {/* File attachment button */}
+                        <input
+                          ref={composerFileInputRef}
+                          type="file"
+                          multiple
+                          className="hidden"
+                          onChange={(e) => {
+                            const files = Array.from(e.target.files ?? []);
+                            if (files.length > 0) addComposerAttachments(files);
+                            e.target.value = "";
+                          }}
+                        />
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          type="button"
+                          className="shrink-0 px-2 text-muted-foreground/70 hover:text-foreground/80"
+                          onClick={() => composerFileInputRef.current?.click()}
+                          title="Attach files"
+                        >
+                          <PaperclipIcon className="size-4" />
+                        </Button>
+                        <Separator orientation="vertical" className="mx-0.5 hidden h-4 sm:block" />
                         {/* Provider/model picker */}
                         <ProviderModelPicker
                           compact={isComposerFooterCompact}

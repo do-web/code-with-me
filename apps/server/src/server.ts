@@ -48,6 +48,7 @@ import { WorkspaceFileSystemLive } from "./workspace/Layers/WorkspaceFileSystem"
 import { WorkspacePathsLive } from "./workspace/Layers/WorkspacePaths";
 import { ProjectSetupScriptRunnerLive } from "./project/Layers/ProjectSetupScriptRunner";
 import { ObservabilityLive } from "./observability/Layers/Observability";
+import { ProviderAccountStatsLive } from "./provider/Layers/ProviderAccountStats";
 import { SkillDiscoveryLive } from "./skillDiscovery";
 
 const PtyAdapterLive = Layer.unwrap(
@@ -202,6 +203,7 @@ const RuntimeDependenciesLive = ReactorLayerLive.pipe(
   // Misc.
   Layer.provideMerge(AnalyticsServiceLayerLive),
   Layer.provideMerge(OpenLive),
+  Layer.provideMerge(ProviderAccountStatsLive),
   Layer.provideMerge(ServerLifecycleEventsLive),
   Layer.provideMerge(SkillDiscoveryLive),
 );

@@ -11,6 +11,7 @@ import {
   OrchestrationGetSnapshotError,
   OrchestrationGetTurnDiffError,
   ORCHESTRATION_WS_METHODS,
+  type ProviderAccountStatsEvent,
   ProjectSearchEntriesError,
   ProjectWriteFileError,
   OrchestrationReplayEventsError,
@@ -48,6 +49,7 @@ import { WorkspaceEntries } from "./workspace/Services/WorkspaceEntries";
 import { WorkspaceFileSystem } from "./workspace/Services/WorkspaceFileSystem";
 import { WorkspacePathOutsideRootError } from "./workspace/Services/WorkspacePaths";
 import { ProjectSetupScriptRunner } from "./project/Services/ProjectSetupScriptRunner";
+import { ProviderAccountStatsService } from "./provider/Services/ProviderAccountStats";
 import { SkillDiscovery } from "./skillDiscovery";
 
 const WsRpcLayer = WsRpcGroup.toLayer(
@@ -69,6 +71,7 @@ const WsRpcLayer = WsRpcGroup.toLayer(
     const workspaceFileSystem = yield* WorkspaceFileSystem;
     const projectSetupScriptRunner = yield* ProjectSetupScriptRunner;
     const skillDiscovery = yield* SkillDiscovery;
+    const providerAccountStats = yield* ProviderAccountStatsService;
 
     const serverCommandId = (tag: string) =>
       CommandId.makeUnsafe(`server:${tag}:${crypto.randomUUID()}`);
@@ -738,9 +741,15 @@ const WsRpcLayer = WsRpcGroup.toLayer(
         ),
 
       [WS_METHODS.subscribeProviderAccountStats]: (_input) =>
-        observeRpcStreamEffect(
+        observeRpcStream(
           WS_METHODS.subscribeProviderAccountStats,
-          Effect.succeed(Stream.empty),
+          Stream.map(
+            providerAccountStats.streamUpdates,
+            (snapshot): ProviderAccountStatsEvent => ({
+              type: "provider.account-stats.updated",
+              payload: snapshot,
+            }),
+          ),
           { "rpc.aggregate": "provider" },
         ),
     });

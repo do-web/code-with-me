@@ -12,11 +12,16 @@ import {
   TurnId,
   type OrchestrationThreadActivity,
   type ProviderRuntimeEvent,
-} from "@t3tools/contracts";
+} from "@codewithme/contracts";
 import { Cache, Cause, Duration, Effect, Layer, Option, Stream } from "effect";
-import { makeDrainableWorker } from "@t3tools/shared/DrainableWorker";
+import { makeDrainableWorker } from "@codewithme/shared/DrainableWorker";
 
 import { ProviderService } from "../../provider/Services/ProviderService.ts";
+import { ProviderAccountStatsService } from "../../provider/Services/ProviderAccountStats.ts";
+import {
+  normalizeClaudeRateLimits,
+  normalizeCodexRateLimits,
+} from "../../provider/providerAccountStatsNormalization.ts";
 import { ProjectionTurnRepository } from "../../persistence/Services/ProjectionTurns.ts";
 import { ProjectionTurnRepositoryLive } from "../../persistence/Layers/ProjectionTurns.ts";
 import { resolveThreadWorkspaceCwd } from "../../checkpointing/Utils.ts";
@@ -39,7 +44,8 @@ const BUFFERED_MESSAGE_TEXT_BY_MESSAGE_ID_TTL = Duration.minutes(120);
 const BUFFERED_PROPOSED_PLAN_BY_ID_CACHE_CAPACITY = 10_000;
 const BUFFERED_PROPOSED_PLAN_BY_ID_TTL = Duration.minutes(120);
 const MAX_BUFFERED_ASSISTANT_CHARS = 24_000;
-const STRICT_PROVIDER_LIFECYCLE_GUARD = process.env.T3CODE_STRICT_PROVIDER_LIFECYCLE_GUARD !== "0";
+const STRICT_PROVIDER_LIFECYCLE_GUARD =
+  process.env.CODEWITHME_STRICT_PROVIDER_LIFECYCLE_GUARD !== "0";
 
 type TurnStartRequestedDomainEvent = Extract<
   OrchestrationEvent,
@@ -505,6 +511,14 @@ const make = Effect.fn("make")(function* () {
   const providerService = yield* ProviderService;
   const projectionTurnRepository = yield* ProjectionTurnRepository;
   const serverSettingsService = yield* ServerSettingsService;
+  const providerAccountStats = yield* ProviderAccountStatsService;
+
+  const sessionCostByProvider: Record<string, number> = {};
+  const sessionTokensByProvider: Record<string, number> = {};
+  const latestQuotasByProvider: Record<
+    string,
+    Record<string, import("@codewithme/contracts").ProviderQuota>
+  > = {};
 
   const turnMessageIdsByTurnKey = yield* Cache.make<string, Set<MessageId>>({
     capacity: TURN_MESSAGE_IDS_BY_TURN_CACHE_CAPACITY,
@@ -1135,6 +1149,23 @@ const make = Effect.fn("make")(function* () {
           updatedAt: now,
         });
       }
+
+      const turnCost = (event.payload as { totalCostUsd?: number }).totalCostUsd;
+      if (typeof turnCost === "number" && Number.isFinite(turnCost) && turnCost > 0) {
+        sessionCostByProvider[event.provider] =
+          (sessionCostByProvider[event.provider] ?? 0) + turnCost;
+      }
+
+      const turnUsage = (event.payload as { usage?: Record<string, unknown> }).usage;
+      if (turnUsage) {
+        const totalTokens =
+          (typeof turnUsage.inputTokens === "number" ? turnUsage.inputTokens : 0) +
+          (typeof turnUsage.outputTokens === "number" ? turnUsage.outputTokens : 0);
+        if (totalTokens > 0) {
+          sessionTokensByProvider[event.provider] =
+            (sessionTokensByProvider[event.provider] ?? 0) + totalTokens;
+        }
+      }
     }
 
     if (event.type === "session.exited") {
@@ -1208,6 +1239,54 @@ const make = Effect.fn("make")(function* () {
           });
         }
       }
+    }
+
+    if (event.type === "account.rate-limits.updated") {
+      const provider = event.provider;
+      const rawLimits = (event.payload as { rateLimits?: unknown }).rateLimits;
+      const newQuotas =
+        provider === "claudeAgent"
+          ? normalizeClaudeRateLimits(rawLimits)
+          : normalizeCodexRateLimits(rawLimits);
+
+      if (newQuotas.length > 0) {
+        const existing = latestQuotasByProvider[provider] ?? {};
+        for (const quota of newQuotas) {
+          existing[quota.name] = quota;
+        }
+        latestQuotasByProvider[provider] = existing;
+
+        const latest = yield* providerAccountStats.getLatest(provider);
+        yield* providerAccountStats.publish({
+          provider,
+          plan: latest?.plan,
+          email: latest?.email,
+          quotas: Object.values(existing),
+          sessionCostUsd: sessionCostByProvider[provider],
+          sessionTokensTotal: sessionTokensByProvider[provider],
+          updatedAt: event.createdAt,
+        });
+      }
+    }
+
+    if (event.type === "account.updated") {
+      const provider = event.provider;
+      const payload = event.payload as { account?: Record<string, unknown> };
+      const account = payload.account;
+      const plan =
+        typeof account?.subscriptionType === "string" ? account.subscriptionType : undefined;
+      const email = typeof account?.email === "string" ? account.email : undefined;
+
+      const latest = yield* providerAccountStats.getLatest(provider);
+      yield* providerAccountStats.publish({
+        provider,
+        ...(plan ? { plan } : latest?.plan ? { plan: latest.plan } : {}),
+        ...(email ? { email } : latest?.email ? { email: latest.email } : {}),
+        quotas: latest?.quotas ?? Object.values(latestQuotasByProvider[provider] ?? {}),
+        sessionCostUsd: sessionCostByProvider[provider],
+        sessionTokensTotal: sessionTokensByProvider[provider],
+        updatedAt: event.createdAt,
+      });
     }
 
     const activities = runtimeEventToActivities(event);

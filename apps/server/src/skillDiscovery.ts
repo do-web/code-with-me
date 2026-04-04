@@ -8,7 +8,9 @@ import * as os from "node:os";
 // Frontmatter parsing
 // ---------------------------------------------------------------------------
 
-function parseFrontmatter(content: string): { name: string; description: string } | null {
+function parseFrontmatter(
+  content: string,
+): { name: string | undefined; description: string | undefined } | null {
   const match = /^---\r?\n([\s\S]*?)\r?\n---/.exec(content);
   if (!match?.[1]) return null;
   const block = match[1];
@@ -22,7 +24,7 @@ function parseFrontmatter(content: string): { name: string; description: string 
     if (key === "name") name = value;
     else if (key === "description") description = value;
   }
-  if (!name || !description) return null;
+  if (!name && !description) return null;
   return { name, description };
 }
 
@@ -37,7 +39,7 @@ async function readSkillFile(
   try {
     const content = await fs.readFile(skillMdPath, "utf-8");
     const fm = parseFrontmatter(content);
-    if (!fm) return null;
+    if (!fm?.name || !fm?.description) return null;
     return { name: fm.name, description: fm.description, source };
   } catch {
     return null;
@@ -79,12 +81,77 @@ async function getPluginSkillPaths(): Promise<string[]> {
   }
 }
 
+/**
+ * Scan marketplace plugin directories for agents and commands.
+ * These are stored as individual .md files (not SKILL.md in subdirectories).
+ * Path: ~/.claude/plugins/marketplaces/{marketplace}/plugins/{plugin}/agents/*.md
+ * Path: ~/.claude/plugins/marketplaces/{marketplace}/plugins/{plugin}/commands/*.md
+ */
+async function scanMarketplacePlugins(): Promise<SkillEntry[]> {
+  const marketplacesDir = path.join(os.homedir(), ".claude", "plugins", "marketplaces");
+  const skills: SkillEntry[] = [];
+
+  let marketplaceNames: string[];
+  try {
+    marketplaceNames = await fs.readdir(marketplacesDir);
+  } catch {
+    return skills;
+  }
+
+  for (const marketplace of marketplaceNames) {
+    const pluginsDir = path.join(marketplacesDir, marketplace, "plugins");
+    let pluginNames: string[];
+    try {
+      pluginNames = await fs.readdir(pluginsDir);
+    } catch {
+      continue;
+    }
+    for (const plugin of pluginNames) {
+      for (const subdir of ["agents", "commands"]) {
+        const dir = path.join(pluginsDir, plugin, subdir);
+        let files: string[];
+        try {
+          files = await fs.readdir(dir);
+        } catch {
+          continue;
+        }
+        for (const file of files) {
+          if (!file.endsWith(".md")) continue;
+          const filePath = path.join(dir, file);
+          const entry = await readSkillFile(filePath, "plugin");
+          if (entry) {
+            skills.push(entry);
+          } else {
+            // Fallback: use filename as name if frontmatter has description but no name
+            try {
+              const content = await fs.readFile(filePath, "utf-8");
+              const fm = parseFrontmatter(content);
+              if (fm?.description) {
+                skills.push({
+                  name: file.replace(/\.md$/, ""),
+                  description: fm.description,
+                  source: "plugin",
+                });
+              }
+            } catch {
+              // Skip unreadable files
+            }
+          }
+        }
+      }
+    }
+  }
+
+  return skills;
+}
+
 async function scanAllSkills(): Promise<SkillEntry[]> {
   const userSkillsDir = path.join(os.homedir(), ".claude", "skills");
   const pluginSkillDirs = await getPluginSkillPaths();
 
-  const [userSkills, ...pluginSkillArrays] = await Promise.all([
+  const [userSkills, marketplaceSkills, ...pluginSkillArrays] = await Promise.all([
     scanDirectory(userSkillsDir, "user"),
+    scanMarketplacePlugins(),
     ...pluginSkillDirs.map((dir) => scanDirectory(dir, "plugin")),
   ]);
 
@@ -93,6 +160,12 @@ async function scanAllSkills(): Promise<SkillEntry[]> {
   const merged: SkillEntry[] = [];
 
   for (const skill of userSkills ?? []) {
+    if (!seen.has(skill.name)) {
+      seen.add(skill.name);
+      merged.push(skill);
+    }
+  }
+  for (const skill of marketplaceSkills) {
     if (!seen.has(skill.name)) {
       seen.add(skill.name);
       merged.push(skill);

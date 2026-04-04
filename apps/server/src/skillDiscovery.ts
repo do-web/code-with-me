@@ -107,7 +107,7 @@ async function scanAllSkills(): Promise<SkillEntry[]> {
     }
   }
 
-  return merged.sort((a, b) => a.name.localeCompare(b.name));
+  return merged.toSorted((a, b) => a.name.localeCompare(b.name));
 }
 
 // ---------------------------------------------------------------------------

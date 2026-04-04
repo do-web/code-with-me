@@ -49,6 +49,7 @@ import type {
 } from "./orchestration";
 import { EditorId } from "./editor";
 import { ServerSettings, ServerSettingsPatch } from "./settings";
+import type { SkillsListResult } from "./skill";
 
 export interface ContextMenuItem<T extends string = string> {
   id: T;
@@ -106,6 +107,7 @@ export interface DesktopUpdateCheckResult {
 export interface DesktopBridge {
   getWsUrl: () => string | null;
   pickFolder: () => Promise<string | null>;
+  getPathForFile: (file: File) => string;
   confirm: (message: string) => Promise<boolean>;
   setTheme: (theme: DesktopTheme) => Promise<void>;
   showContextMenu: <T extends string>(
@@ -171,6 +173,10 @@ export interface NativeApi {
     upsertKeybinding: (input: ServerUpsertKeybindingInput) => Promise<ServerUpsertKeybindingResult>;
     getSettings: () => Promise<ServerSettings>;
     updateSettings: (patch: ServerSettingsPatch) => Promise<ServerSettings>;
+  };
+  skills: {
+    list: () => Promise<SkillsListResult>;
+    refresh: () => Promise<SkillsListResult>;
   };
   orchestration: {
     getSnapshot: () => Promise<OrchestrationReadModel>;

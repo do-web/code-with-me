@@ -14,7 +14,7 @@
     },
     "apps/desktop": {
       "name": "@codewithme/desktop",
-      "version": "0.0.15",
+      "version": "1.0.0",
       "dependencies": {
         "effect": "catalog:",
         "electron": "40.6.0",
@@ -31,7 +31,7 @@
     },
     "apps/server": {
       "name": "codewithme",
-      "version": "0.0.15",
+      "version": "1.0.0",
       "bin": {
         "codewithme": "./dist/bin.mjs",
       },
@@ -60,7 +60,7 @@
     },
     "apps/web": {
       "name": "@codewithme/web",
-      "version": "0.0.15",
+      "version": "1.0.0",
       "dependencies": {
         "@base-ui/react": "^1.2.0",
         "@codewithme/contracts": "workspace:*",
@@ -72,7 +72,7 @@
         "@effect/atom-react": "catalog:",
         "@formkit/auto-animate": "^0.9.0",
         "@lexical/react": "^0.41.0",
-        "@pierre/diffs": "^1.1.0-beta.16",
+        "@pierre/diffs": "^1.1.10",
         "@tanstack/react-pacer": "^0.19.4",
         "@tanstack/react-query": "^5.90.0",
         "@tanstack/react-router": "^1.160.2",
@@ -112,7 +112,7 @@
     },
     "packages/contracts": {
       "name": "@codewithme/contracts",
-      "version": "0.0.15",
+      "version": "1.0.0",
       "dependencies": {
         "effect": "catalog:",
       },
@@ -126,7 +126,7 @@
     },
     "packages/shared": {
       "name": "@codewithme/shared",
-      "version": "0.0.0-alpha.1",
+      "version": "1.0.0",
       "dependencies": {
         "@codewithme/contracts": "workspace:*",
         "effect": "catalog:",

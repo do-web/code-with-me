@@ -19,6 +19,7 @@ import {
   useState,
 } from "react";
 import { openInPreferredEditor } from "../editorPreferences";
+import { dispatchDiffLineReference } from "~/lib/diffLineReference";
 import { gitStatusQueryOptions } from "~/lib/gitReactQuery";
 import { checkpointDiffQueryOptions } from "~/lib/providerReactQuery";
 import { cn } from "~/lib/utils";
@@ -99,6 +100,11 @@ const DIFF_PANEL_UNSAFE_CSS = `
 [data-title]:hover {
   color: color-mix(in srgb, var(--foreground) 84%, var(--primary)) !important;
   text-decoration-color: currentColor;
+}
+
+[data-line-type="change-addition"],
+[data-line-type="change-deletion"] {
+  cursor: pointer;
 }
 `;
 
@@ -585,6 +591,7 @@ export default function DiffPanel({ mode = "inline" }: DiffPanelProps) {
                 config={{
                   overscrollSize: 600,
                   intersectionObserverMargin: 1200,
+                  resizeDebugging: false,
                 }}
               >
                 {renderableFiles.map((fileDiff) => {
@@ -616,6 +623,18 @@ export default function DiffPanel({ mode = "inline" }: DiffPanelProps) {
                           theme: resolveDiffThemeName(resolvedTheme),
                           themeType: resolvedTheme as DiffThemeType,
                           unsafeCSS: DIFF_PANEL_UNSAFE_CSS,
+                          onLineClick: (props) => {
+                            if (
+                              props.lineType === "context" ||
+                              props.lineType === "context-expanded"
+                            )
+                              return;
+                            dispatchDiffLineReference({
+                              filePath,
+                              lineNumber: props.lineNumber,
+                              side: props.annotationSide,
+                            });
+                          },
                         }}
                       />
                     </div>

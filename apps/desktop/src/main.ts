@@ -45,6 +45,7 @@ import {
   reduceDesktopUpdateStateOnUpdateAvailable,
 } from "./updateMachine";
 import { isArm64HostRunningIntelBuild, resolveDesktopRuntimeInfo } from "./runtimeArch";
+import { createWindowStateManager } from "./windowState";
 
 syncShellEnvironment();
 
@@ -78,6 +79,7 @@ const LOG_FILE_MAX_BYTES = 10 * 1024 * 1024;
 const LOG_FILE_MAX_FILES = 10;
 const APP_RUN_ID = Crypto.randomBytes(6).toString("hex");
 const SERVER_SETTINGS_PATH = Path.join(STATE_DIR, "settings.json");
+const WINDOW_STATE_PATH = Path.join(STATE_DIR, "window-state.json");
 const AUTO_UPDATE_STARTUP_DELAY_MS = 15_000;
 const AUTO_UPDATE_POLL_INTERVAL_MS = 4 * 60 * 60 * 1000;
 const DESKTOP_UPDATE_CHANNEL = "latest";
@@ -1340,9 +1342,19 @@ function getIconOption(): { icon: string } | Record<string, never> {
 }
 
 function createWindow(): BrowserWindow {
-  const window = new BrowserWindow({
+  const windowStateManager = createWindowStateManager(WINDOW_STATE_PATH, {
+    x: 0,
+    y: 0,
     width: 1100,
     height: 780,
+  });
+  const { bounds, isMaximized } = windowStateManager.load();
+
+  const window = new BrowserWindow({
+    x: bounds.x,
+    y: bounds.y,
+    width: bounds.width,
+    height: bounds.height,
     minWidth: 840,
     minHeight: 620,
     show: false,
@@ -1358,6 +1370,9 @@ function createWindow(): BrowserWindow {
       sandbox: true,
     },
   });
+
+  if (isMaximized) window.maximize();
+  windowStateManager.track(window);
 
   window.webContents.on("context-menu", (event, params) => {
     event.preventDefault();

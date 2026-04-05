@@ -32,6 +32,7 @@ import { gitStatusQueryOptions } from "~/lib/gitReactQuery";
 import { projectSearchEntriesQueryOptions } from "~/lib/projectReactQuery";
 import { isElectron } from "../env";
 import { parseDiffRouteSearch, stripDiffSearchParams } from "../diffRouteSearch";
+import { onDiffLineReference } from "~/lib/diffLineReference";
 import {
   clampCollapsedComposerCursor,
   type ComposerTrigger,
@@ -1616,9 +1617,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
       search: (previous) => {
         const rest = stripDiffSearchParams(previous);
         // Close changes panel when opening diff
-        return diffOpen
-          ? { ...rest, diff: undefined }
-          : { ...rest, diff: "1", changes: undefined };
+        return diffOpen ? { ...rest, diff: undefined } : { ...rest, diff: "1", changes: undefined };
       },
     });
   }, [diffOpen, navigate, threadId]);
@@ -1637,6 +1636,21 @@ export default function ChatView({ threadId }: ChatViewProps) {
       },
     });
   }, [changesOpen, navigate, threadId]);
+
+  useEffect(() => {
+    return onDiffLineReference((detail) => {
+      const current = promptRef.current;
+      const reference = `@${detail.filePath}:${detail.lineNumber} `;
+      const next =
+        current.length > 0 && !current.endsWith(" ")
+          ? `${current} ${reference}`
+          : `${current}${reference}`;
+      setPrompt(next);
+      window.requestAnimationFrame(() => {
+        composerEditorRef.current?.focusAtEnd();
+      });
+    });
+  }, [setPrompt]);
 
   const envLocked = Boolean(
     activeThread &&

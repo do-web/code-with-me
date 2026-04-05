@@ -29,6 +29,7 @@ import {
   gitStatusQueryOptions,
 } from "~/lib/gitReactQuery";
 import { buildPatchCacheKey, resolveDiffThemeName } from "~/lib/diffRendering";
+import { dispatchDiffLineReference } from "~/lib/diffLineReference";
 import { useTheme } from "~/hooks/useTheme";
 import { useStore } from "~/store";
 import { cn } from "~/lib/utils";
@@ -64,6 +65,10 @@ const DIFF_CSS = `
 }
 [data-slot=changes-panel] [data-file-info] {
   display: none !important;
+}
+[data-slot=changes-panel] [data-line-type="change-addition"],
+[data-slot=changes-panel] [data-line-type="change-deletion"] {
+  cursor: pointer;
 }
 `;
 
@@ -105,6 +110,7 @@ export default function UncommittedChangesPanel({ mode }: { mode: DiffPanelMode 
     gitDiscardChangesMutationOptions({ cwd: gitCwd, queryClient }),
   );
   const [discardTarget, setDiscardTarget] = useState<string | null>(null);
+  const [allExpanded, setAllExpanded] = useState(false);
 
   const confirmDiscard = useCallback(
     async (filePath: string) => {
@@ -158,17 +164,24 @@ export default function UncommittedChangesPanel({ mode }: { mode: DiffPanelMode 
               </span>
             )}
           </div>
-          {files.length > 0 && (
-            <Button
-              variant="ghost"
-              size="xs"
-              className="shrink-0 text-destructive"
-              onClick={() => setDiscardTarget("__all__")}
-              disabled={discardMutation.isPending}
-            >
-              Discard all
-            </Button>
-          )}
+          <div className="flex shrink-0 items-center gap-1">
+            {files.length > 0 && (
+              <Button variant="ghost" size="xs" onClick={() => setAllExpanded((prev) => !prev)}>
+                {allExpanded ? "Collapse all" : "Expand all"}
+              </Button>
+            )}
+            {files.length > 0 && (
+              <Button
+                variant="ghost"
+                size="xs"
+                className="text-destructive"
+                onClick={() => setDiscardTarget("__all__")}
+                disabled={discardMutation.isPending}
+              >
+                Discard all
+              </Button>
+            )}
+          </div>
         </div>
       </div>
 
@@ -183,6 +196,7 @@ export default function UncommittedChangesPanel({ mode }: { mode: DiffPanelMode 
                 key={file.path}
                 file={file}
                 gitCwd={gitCwd}
+                allExpanded={allExpanded}
                 onRequestDiscard={setDiscardTarget}
                 isDiscarding={discardMutation.isPending}
               />
@@ -239,15 +253,27 @@ type WorkingTreeFile = GitStatusResult["workingTree"]["files"][number];
 const FileChangeItem = memo(function FileChangeItem({
   file,
   gitCwd,
+  allExpanded,
   onRequestDiscard,
   isDiscarding,
 }: {
   file: WorkingTreeFile;
   gitCwd: string | null;
+  allExpanded: boolean;
   onRequestDiscard: (filePath: string) => void;
   isDiscarding: boolean;
 }) {
-  const [expanded, setExpanded] = useState(false);
+  const [localOverride, setLocalOverride] = useState<boolean | null>(null);
+  const [lastAllExpanded, setLastAllExpanded] = useState(allExpanded);
+
+  // Reset local override when allExpanded changes
+  if (allExpanded !== lastAllExpanded) {
+    setLastAllExpanded(allExpanded);
+    setLocalOverride(null);
+  }
+
+  const expanded = localOverride ?? allExpanded;
+  const setExpanded = (open: boolean) => setLocalOverride(open);
   const { resolvedTheme } = useTheme();
 
   return (
@@ -376,6 +402,14 @@ const FileDiffViewer = memo(function FileDiffViewer({
             theme: themeName,
             themeType: resolvedTheme as "light" | "dark",
             unsafeCSS: DIFF_CSS,
+            onLineClick: (props) => {
+              if (props.lineType === "context" || props.lineType === "context-expanded") return;
+              dispatchDiffLineReference({
+                filePath,
+                lineNumber: props.lineNumber,
+                side: props.annotationSide,
+              });
+            },
           }}
         />
       ))}

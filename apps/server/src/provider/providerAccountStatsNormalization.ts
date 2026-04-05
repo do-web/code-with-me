@@ -22,6 +22,14 @@ const CLAUDE_RATE_LIMIT_TYPE_LABELS: Record<string, string> = {
   overage: "Overage",
 };
 
+// Claude SDK's rate_limit_info.status → rough percentUsed.
+// "utilization" field is preferred but often not sent by the server.
+function statusToPercentUsed(status: string | null): number {
+  if (status === "rejected") return 100;
+  if (status === "allowed_warning") return 75;
+  return -1; // -1 = unknown, let the UI decide how to display
+}
+
 export function normalizeClaudeRateLimits(raw: unknown): ProviderQuota[] {
   const record = asRecord(raw);
   if (!record) return [];
@@ -32,7 +40,10 @@ export function normalizeClaudeRateLimits(raw: unknown): ProviderQuota[] {
   const rateLimitType = asString(info.rateLimitType);
   const name = (rateLimitType && CLAUDE_RATE_LIMIT_TYPE_LABELS[rateLimitType]) ?? "Unknown";
   const utilization = asNumber(info.utilization);
-  const percentUsed = utilization !== null ? Math.round(utilization * 100) : 0;
+  const status = asString(info.status);
+
+  const percentUsed =
+    utilization !== null ? parseFloat((utilization * 100).toFixed(1)) : statusToPercentUsed(status);
 
   const resetsAtEpoch = asNumber(info.resetsAt);
   const resetsAtIso =

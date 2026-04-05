@@ -3,7 +3,7 @@
  *
  * @module ProviderRegistryLive
  */
-import type { ProviderKind, ServerProvider } from "@t3tools/contracts";
+import type { ProviderKind, ServerProvider } from "@codewithme/contracts";
 import { Effect, Equal, Layer, PubSub, Ref, Stream } from "effect";
 
 import { ClaudeProviderLive } from "./ClaudeProvider";

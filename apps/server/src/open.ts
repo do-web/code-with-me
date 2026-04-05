@@ -10,7 +10,7 @@ import { spawn } from "node:child_process";
 import { accessSync, constants, statSync } from "node:fs";
 import { extname, join } from "node:path";
 
-import { EDITORS, OpenError, type EditorId } from "@t3tools/contracts";
+import { EDITORS, OpenError, type EditorId } from "@codewithme/contracts";
 import { ServiceMap, Effect, Layer } from "effect";
 
 // ==============================
@@ -204,6 +204,23 @@ export function resolveAvailableEditors(
     }
   }
 
+  // JetBrains Toolbox installs to a path with spaces that may not survive
+  // environment synchronisation in sandboxed contexts. Fall back to a direct
+  // probe when the normal PATH scan misses these editors.
+  if (platform === "darwin") {
+    const toolboxDir = env.HOME
+      ? `${env.HOME}/Library/Application Support/JetBrains/Toolbox/scripts`
+      : null;
+    if (toolboxDir) {
+      for (const editor of EDITORS) {
+        if (available.includes(editor.id) || !editor.command) continue;
+        if (isExecutableFile(join(toolboxDir, editor.command), platform, [])) {
+          available.push(editor.id);
+        }
+      }
+    }
+  }
+
   return available;
 }
 
@@ -227,7 +244,7 @@ export interface OpenShape {
 /**
  * Open - Service tag for browser/editor launch operations.
  */
-export class Open extends ServiceMap.Service<Open, OpenShape>()("t3/open") {}
+export class Open extends ServiceMap.Service<Open, OpenShape>()("codewithme/open") {}
 
 // ==============================
 // Implementations

@@ -15,7 +15,7 @@ import {
   ServerSettingsPatch,
   ModelSelection,
   ThreadEnvMode,
-} from "@t3tools/contracts";
+} from "@codewithme/contracts";
 import {
   type ClientSettings,
   ClientSettingsSchema,
@@ -25,17 +25,17 @@ import {
   SidebarThreadSortOrder,
   TimestampFormat,
   UnifiedSettings,
-} from "@t3tools/contracts/settings";
+} from "@codewithme/contracts/settings";
 import { ensureNativeApi } from "~/nativeApi";
 import { useLocalStorage } from "./useLocalStorage";
 import { normalizeCustomModelSlugs } from "~/modelSelection";
 import { Predicate, Schema, Struct } from "effect";
 import { DeepMutable } from "effect/Types";
-import { deepMerge } from "@t3tools/shared/Struct";
+import { deepMerge } from "@codewithme/shared/Struct";
 import { applySettingsUpdated, getServerConfig, useServerSettings } from "~/rpc/serverState";
 
-const CLIENT_SETTINGS_STORAGE_KEY = "t3code:client-settings:v1";
-const OLD_SETTINGS_KEY = "t3code:app-settings:v1";
+const CLIENT_SETTINGS_STORAGE_KEY = "codewithme:client-settings:v1";
+const OLD_SETTINGS_KEY = "codewithme:app-settings:v1";
 
 // ── Key sets for routing patches ─────────────────────────────────────
 

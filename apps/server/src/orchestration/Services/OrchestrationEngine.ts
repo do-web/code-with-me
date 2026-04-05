@@ -14,7 +14,7 @@ import type {
   OrchestrationCommand,
   OrchestrationEvent,
   OrchestrationReadModel,
-} from "@t3tools/contracts";
+} from "@codewithme/contracts";
 import { ServiceMap } from "effect";
 import type { Effect, Stream } from "effect";
 
@@ -77,4 +77,4 @@ export interface OrchestrationEngineShape {
 export class OrchestrationEngineService extends ServiceMap.Service<
   OrchestrationEngineService,
   OrchestrationEngineShape
->()("t3/orchestration/Services/OrchestrationEngine/OrchestrationEngineService") {}
+>()("codewithme/orchestration/Services/OrchestrationEngine/OrchestrationEngineService") {}

@@ -10,4 +10,4 @@ export interface BrowserTraceCollectorShape {
 export class BrowserTraceCollector extends ServiceMap.Service<
   BrowserTraceCollector,
   BrowserTraceCollectorShape
->()("t3/observability/Services/BrowserTraceCollector") {}
+>()("codewithme/observability/Services/BrowserTraceCollector") {}

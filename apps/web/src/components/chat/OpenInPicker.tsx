@@ -1,4 +1,4 @@
-import { EditorId, type ResolvedKeybindingsConfig } from "@t3tools/contracts";
+import { EditorId, type ResolvedKeybindingsConfig } from "@codewithme/contracts";
 import { memo, useCallback, useEffect, useMemo } from "react";
 import { isOpenFavoriteEditorShortcut, shortcutLabelForCommand } from "../../keybindings";
 import { usePreferredEditor } from "../../editorPreferences";
@@ -59,6 +59,11 @@ const resolveOptions = (platform: string, availableEditors: ReadonlyArray<Editor
       label: "IntelliJ IDEA",
       Icon: IntelliJIdeaIcon,
       value: "idea",
+    },
+    {
+      label: "PhpStorm",
+      Icon: IntelliJIdeaIcon,
+      value: "phpstorm",
     },
     {
       label: isMacPlatform(platform)

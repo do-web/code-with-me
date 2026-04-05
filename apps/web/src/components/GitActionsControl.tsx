@@ -4,7 +4,7 @@ import type {
   GitStackedAction,
   GitStatusResult,
   ThreadId,
-} from "@t3tools/contracts";
+} from "@codewithme/contracts";
 import { useIsMutating, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import { ChevronDownIcon, CloudUploadIcon, GitCommitIcon, InfoIcon } from "lucide-react";

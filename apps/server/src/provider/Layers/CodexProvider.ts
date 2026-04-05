@@ -6,7 +6,7 @@ import type {
   ServerProviderModel,
   ServerProviderAuth,
   ServerProviderState,
-} from "@t3tools/contracts";
+} from "@codewithme/contracts";
 import {
   Cache,
   Duration,
@@ -47,7 +47,7 @@ import {
 import { probeCodexAccount } from "../codexAppServer";
 import { CodexProvider } from "../Services/CodexProvider";
 import { ServerSettingsService } from "../../serverSettings";
-import { ServerSettingsError } from "@t3tools/contracts";
+import { ServerSettingsError } from "@codewithme/contracts";
 
 const PROVIDER = "codex" as const;
 const OPENAI_AUTH_PROVIDERS = new Set(["openai"]);
@@ -352,7 +352,7 @@ export const checkCodexProviderStatus = Effect.fn("checkCodexProviderStatus")(fu
         version: null,
         status: "warning",
         auth: { status: "unknown" },
-        message: "Codex is disabled in T3 Code settings.",
+        message: "Codex is disabled in CodeWithMe settings.",
       },
     });
   }

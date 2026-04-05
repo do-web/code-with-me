@@ -2,7 +2,7 @@ import { parsePatchFiles } from "@pierre/diffs";
 import { FileDiff, type FileDiffMetadata, Virtualizer } from "@pierre/diffs/react";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate, useParams, useSearch } from "@tanstack/react-router";
-import { ThreadId, type TurnId } from "@t3tools/contracts";
+import { ThreadId, type TurnId } from "@codewithme/contracts";
 import {
   ChevronLeftIcon,
   ChevronRightIcon,

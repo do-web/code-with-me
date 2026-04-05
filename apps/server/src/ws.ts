@@ -741,15 +741,25 @@ const WsRpcLayer = WsRpcGroup.toLayer(
         ),
 
       [WS_METHODS.subscribeProviderAccountStats]: (_input) =>
-        observeRpcStream(
+        observeRpcStreamEffect(
           WS_METHODS.subscribeProviderAccountStats,
-          Stream.map(
-            providerAccountStats.streamUpdates,
-            (snapshot): ProviderAccountStatsEvent => ({
-              type: "provider.account-stats.updated",
-              payload: snapshot,
-            }),
-          ),
+          Effect.gen(function* () {
+            const snapshot = yield* providerAccountStats.snapshot;
+            const snapshotEvents = Array.from(snapshot.latestByProvider.values()).map(
+              (s): ProviderAccountStatsEvent => ({
+                type: "provider.account-stats.updated",
+                payload: s,
+              }),
+            );
+            const liveEvents = Stream.map(
+              providerAccountStats.streamUpdates,
+              (s): ProviderAccountStatsEvent => ({
+                type: "provider.account-stats.updated",
+                payload: s,
+              }),
+            );
+            return Stream.concat(Stream.fromIterable(snapshotEvents), liveEvents);
+          }),
           { "rpc.aggregate": "provider" },
         ),
     });

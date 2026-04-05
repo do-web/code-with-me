@@ -21,7 +21,7 @@ import {
   ProviderStopSessionInput,
   type ProviderRuntimeEvent,
   type ProviderSession,
-} from "@t3tools/contracts";
+} from "@codewithme/contracts";
 import { Effect, Layer, Option, PubSub, Queue, Schema, SchemaIssue, Stream } from "effect";
 
 import {
@@ -337,7 +337,7 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
         if (!settings.providers[input.provider].enabled) {
           return yield* toValidationError(
             "ProviderService.startSession",
-            `Provider '${input.provider}' is disabled in T3 Code settings.`,
+            `Provider '${input.provider}' is disabled in CodeWithMe settings.`,
           );
         }
         const persistedBinding = Option.getOrUndefined(yield* directory.getBinding(threadId));

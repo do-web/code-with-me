@@ -1,4 +1,4 @@
-import { DEFAULT_RUNTIME_MODE, type ProjectId, ThreadId } from "@t3tools/contracts";
+import { DEFAULT_RUNTIME_MODE, type ProjectId, ThreadId } from "@codewithme/contracts";
 import { useNavigate, useParams } from "@tanstack/react-router";
 import { useCallback, useMemo } from "react";
 import { useShallow } from "zustand/react/shallow";

@@ -1,4 +1,4 @@
-import type { ServerLifecycleStreamEvent } from "@t3tools/contracts";
+import type { ServerLifecycleStreamEvent } from "@codewithme/contracts";
 import { Effect, Layer, PubSub, Ref, ServiceMap, Stream } from "effect";
 
 type LifecycleEventInput =
@@ -19,7 +19,7 @@ export interface ServerLifecycleEventsShape {
 export class ServerLifecycleEvents extends ServiceMap.Service<
   ServerLifecycleEvents,
   ServerLifecycleEventsShape
->()("t3/serverLifecycleEvents") {}
+>()("codewithme/serverLifecycleEvents") {}
 
 export const ServerLifecycleEventsLive = Layer.effect(
   ServerLifecycleEvents,

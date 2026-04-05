@@ -18,6 +18,12 @@ function barColor(percentUsed: number): string {
   return "bg-emerald-400";
 }
 
+function statusLabel(percentUsed: number): { text: string; color: string } {
+  if (percentUsed === 100) return { text: "Rate limited", color: "text-red-400" };
+  if (percentUsed >= 70) return { text: "Warning", color: "text-orange-400" };
+  return { text: "OK", color: "text-emerald-400" };
+}
+
 interface QuotaBarProps {
   readonly name: string;
   readonly percentUsed: number;
@@ -26,9 +32,25 @@ interface QuotaBarProps {
 }
 
 export function QuotaBar({ name, percentUsed, percentReserve, resetsInMs }: QuotaBarProps) {
-  const percentLeft = Math.max(0, 100 - percentUsed);
   const resetLabel = formatResetCountdown(resetsInMs);
-  const clampedUsed = Math.max(0, Math.min(100, percentUsed));
+  const hasRealPercentage = percentUsed >= 0;
+  const clampedUsed = Math.max(0, Math.min(100, hasRealPercentage ? percentUsed : 0));
+
+  // percentUsed === -1 means unknown (no utilization from SDK)
+  if (!hasRealPercentage) {
+    const status = statusLabel(percentUsed === -1 ? 0 : percentUsed);
+    return (
+      <div className="space-y-0.5">
+        <div className="text-xs font-medium text-foreground">{name}</div>
+        <div className="flex items-center justify-between text-[11px] text-muted-foreground">
+          <span className={status.color}>{status.text}</span>
+          {resetLabel ? <span>Resets in {resetLabel}</span> : null}
+        </div>
+      </div>
+    );
+  }
+
+  const percentLeft = Math.max(0, 100 - percentUsed);
 
   return (
     <div className="space-y-1">
@@ -44,7 +66,7 @@ export function QuotaBar({ name, percentUsed, percentReserve, resetsInMs }: Quot
       </div>
       <div className="flex items-center justify-between text-[11px] text-muted-foreground">
         <div className="flex gap-2">
-          <span>{percentLeft}% left</span>
+          <span>{Math.round(percentLeft)}% left</span>
           {percentReserve !== undefined && percentReserve > 0 ? (
             <span>{percentReserve}% in reserve</span>
           ) : null}

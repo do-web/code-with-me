@@ -3,7 +3,7 @@ import type { Dirent } from "node:fs";
 
 import { Cache, Duration, Effect, Exit, Layer, Option, Path } from "effect";
 
-import { type ProjectEntry } from "@t3tools/contracts";
+import { type ProjectEntry } from "@codewithme/contracts";
 
 import { GitCore } from "../../git/Services/GitCore.ts";
 import {

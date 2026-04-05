@@ -34,4 +34,4 @@ export interface ProjectSetupScriptRunnerShape {
 export class ProjectSetupScriptRunner extends ServiceMap.Service<
   ProjectSetupScriptRunner,
   ProjectSetupScriptRunnerShape
->()("t3/project/ProjectSetupScriptRunner") {}
+>()("codewithme/project/ProjectSetupScriptRunner") {}

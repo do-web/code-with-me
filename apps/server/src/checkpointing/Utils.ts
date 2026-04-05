@@ -1,7 +1,7 @@
 import { Encoding } from "effect";
-import { CheckpointRef, ProjectId, type ThreadId } from "@t3tools/contracts";
+import { CheckpointRef, ProjectId, type ThreadId } from "@codewithme/contracts";
 
-export const CHECKPOINT_REFS_PREFIX = "refs/t3/checkpoints";
+export const CHECKPOINT_REFS_PREFIX = "refs/codewithme/checkpoints";
 
 export function checkpointRefForThreadTurn(threadId: ThreadId, turnCount: number): CheckpointRef {
   return CheckpointRef.makeUnsafe(

@@ -49,7 +49,24 @@ function cleanupStaleDevApps() {
     return;
   }
 
-  spawnSync("pkill", ["-f", "--", `--t3code-dev-root=${desktopDir}`], { stdio: "ignore" });
+  // Kill stale Electron instances from previous sessions.
+  spawnSync("pkill", ["-f", "--", `--codewithme-dev-root=${desktopDir}`], { stdio: "ignore" });
+
+  // Kill orphaned dev-electron.mjs watcher processes (but not ourselves).
+  const result = spawnSync("pgrep", ["-f", "dev-electron.mjs"], {
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "ignore"],
+  });
+  if (result.stdout) {
+    for (const line of result.stdout.trim().split("\n")) {
+      const pid = Number(line.trim());
+      if (pid && pid !== process.pid) {
+        try {
+          process.kill(pid, "SIGTERM");
+        } catch {}
+      }
+    }
+  }
 }
 
 function startApp() {
@@ -59,7 +76,7 @@ function startApp() {
 
   const app = spawn(
     resolveElectronPath(),
-    [`--t3code-dev-root=${desktopDir}`, "dist-electron/main.js"],
+    [`--codewithme-dev-root=${desktopDir}`, "dist-electron/main.js"],
     {
       cwd: desktopDir,
       env: {
@@ -206,6 +223,14 @@ async function shutdown(exitCode) {
 startWatchers();
 cleanupStaleDevApps();
 startApp();
+
+// Synchronous fallback: kill Electron if this process exits ungracefully (e.g. SIGKILL from turbo).
+process.on("exit", () => {
+  if (currentApp) {
+    currentApp.kill("SIGTERM");
+    killChildTreeByPid(currentApp.pid, "TERM");
+  }
+});
 
 process.once("SIGINT", () => {
   void shutdown(130);

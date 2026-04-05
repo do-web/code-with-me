@@ -1,5 +1,8 @@
 import * as React from "react";
-import type { SidebarProjectSortOrder, SidebarThreadSortOrder } from "@t3tools/contracts/settings";
+import type {
+  SidebarProjectSortOrder,
+  SidebarThreadSortOrder,
+} from "@codewithme/contracts/settings";
 import type { SidebarThreadSummary, Thread } from "../types";
 import { cn } from "../lib/utils";
 import { isLatestTurnSettled } from "../session-logic";

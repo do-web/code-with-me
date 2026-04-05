@@ -15,7 +15,7 @@ import {
   WS_METHODS,
   OrchestrationSessionStatus,
   DEFAULT_SERVER_SETTINGS,
-} from "@t3tools/contracts";
+} from "@codewithme/contracts";
 import { RouterProvider, createMemoryHistory } from "@tanstack/react-router";
 import { HttpResponse, http, ws } from "msw";
 import { setupWorker } from "msw/browser";
@@ -36,7 +36,7 @@ import { useStore } from "../store";
 import { useTerminalStateStore } from "../terminalStateStore";
 import { BrowserWsRpcHarness, type NormalizedWsRpcRequestBody } from "../../test/wsRpcHarness";
 import { estimateTimelineMessageHeight } from "./timelineHeight";
-import { DEFAULT_CLIENT_SETTINGS } from "@t3tools/contracts/settings";
+import { DEFAULT_CLIENT_SETTINGS } from "@codewithme/contracts/settings";
 
 const THREAD_ID = "thread-browser-test" as ThreadId;
 const UUID_ROUTE_RE = /^\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -120,7 +120,7 @@ function isoAt(offsetSeconds: number): string {
 function createBaseServerConfig(): ServerConfig {
   return {
     cwd: "/repo/project",
-    keybindingsConfigPath: "/repo/project/.t3code-keybindings.json",
+    keybindingsConfigPath: "/repo/project/.codewithme-keybindings.json",
     keybindings: [],
     issues: [],
     providers: [
@@ -137,7 +137,7 @@ function createBaseServerConfig(): ServerConfig {
     ],
     availableEditors: [],
     observability: {
-      logsDirectoryPath: "/repo/project/.t3/logs",
+      logsDirectoryPath: "/repo/project/.codewithme/logs",
       localTracingEnabled: true,
       otlpTracesEnabled: false,
       otlpMetricsEnabled: false,
@@ -1442,10 +1442,10 @@ describe("ChatView timeline estimator parity (full app)", () => {
             cwd: "/repo/project",
             worktreePath: null,
             env: {
-              T3CODE_PROJECT_ROOT: "/repo/project",
+              CODEWITHME_PROJECT_ROOT: "/repo/project",
             },
           });
-          expect(openRequest?.env?.T3CODE_WORKTREE_PATH).toBeUndefined();
+          expect(openRequest?.env?.CODEWITHME_WORKTREE_PATH).toBeUndefined();
         },
         { timeout: 8_000, interval: 16 },
       );
@@ -1610,7 +1610,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
   });
 
   it("falls back to the first installed editor when the stored favorite is unavailable", async () => {
-    localStorage.setItem("t3code:last-editor", JSON.stringify("vscodium"));
+    localStorage.setItem("codewithme:last-editor", JSON.stringify("vscodium"));
     setDraftThreadWithoutWorktree();
 
     const mounted = await mountChatView({
@@ -1707,7 +1707,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
             threadId: THREAD_ID,
             cwd: "/repo/project",
             env: {
-              T3CODE_PROJECT_ROOT: "/repo/project",
+              CODEWITHME_PROJECT_ROOT: "/repo/project",
             },
           });
         },
@@ -1783,8 +1783,8 @@ describe("ChatView timeline estimator parity (full app)", () => {
             threadId: THREAD_ID,
             cwd: "/repo/worktrees/feature-draft",
             env: {
-              T3CODE_PROJECT_ROOT: "/repo/project",
-              T3CODE_WORKTREE_PATH: "/repo/worktrees/feature-draft",
+              CODEWITHME_PROJECT_ROOT: "/repo/project",
+              CODEWITHME_WORKTREE_PATH: "/repo/worktrees/feature-draft",
             },
           });
         },
@@ -1830,7 +1830,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
             pullRequest: {
               number: 1359,
               title: "Add thread archiving and settings navigation",
-              url: "https://github.com/pingdotgg/t3code/pull/1359",
+              url: "https://github.com/do-web/code/pull/1359",
               baseBranch: "main",
               headBranch: "archive-settings-overhaul",
               state: "open",
@@ -1842,7 +1842,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
             pullRequest: {
               number: 1359,
               title: "Add thread archiving and settings navigation",
-              url: "https://github.com/pingdotgg/t3code/pull/1359",
+              url: "https://github.com/do-web/code/pull/1359",
               baseBranch: "main",
               headBranch: "archive-settings-overhaul",
               state: "open",
@@ -1992,7 +1992,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
               prepareWorktree: {
                 projectCwd: "/repo/project",
                 baseBranch: "main",
-                branch: expect.stringMatching(/^t3code\/[0-9a-f]{8}$/),
+                branch: expect.stringMatching(/^codewithme\/[0-9a-f]{8}$/),
               },
               runSetupScript: true,
             },
@@ -2376,7 +2376,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
 
   it("shows the confirm archive action after clicking the archive button", async () => {
     localStorage.setItem(
-      "t3code:client-settings:v1",
+      "codewithme:client-settings:v1",
       JSON.stringify({
         ...DEFAULT_CLIENT_SETTINGS,
         confirmThreadArchive: true,
@@ -2405,7 +2405,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
       await expect.element(confirmButton).toBeInTheDocument();
       await expect.element(confirmButton).toBeVisible();
     } finally {
-      localStorage.removeItem("t3code:client-settings:v1");
+      localStorage.removeItem("codewithme:client-settings:v1");
       await mounted.cleanup();
     }
   });

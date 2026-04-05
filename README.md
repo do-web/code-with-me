@@ -1,54 +1,71 @@
-# T3 Code
+# CodeWithMe
 
-T3 Code is a minimal web GUI for coding agents (currently Codex and Claude, more coming soon).
+A minimal web GUI for coding agents. Currently supports **Codex** and **Claude**, with more providers coming soon.
 
-## Installation
+## Features
 
-> [!WARNING]
-> T3 Code currently supports Codex and Claude.
-> Install and authenticate at least one provider before use:
->
-> - Codex: install [Codex CLI](https://github.com/openai/codex) and run `codex login`
-> - Claude: install Claude Code and run `claude auth login`
+- Multi-provider support (Codex, Claude)
+- Desktop app (Electron) and web interface
+- Real-time session streaming via WebSocket
+- Checkpointing and diff viewing
+- Terminal integration
+- Git workflows (branches, worktrees, PRs)
 
-### Run without installing
-
-```bash
-npx t3
-```
-
-### Desktop app
-
-Install the latest version of the desktop app from [GitHub Releases](https://github.com/pingdotgg/t3code/releases), or from your favorite package registry:
-
-#### Windows (`winget`)
+## Quick Start
 
 ```bash
-winget install T3Tools.T3Code
+npx codewithme
 ```
 
-#### macOS (Homebrew)
+## Desktop App
+
+Download the latest release from [GitHub Releases](https://github.com/do-web/code/releases).
+
+### Package Managers
+
+**macOS (Homebrew)**
 
 ```bash
-brew install --cask t3-code
+brew install --cask codewithme
 ```
 
-#### Arch Linux (AUR)
+**Windows (winget)**
 
 ```bash
-yay -S t3code-bin
+winget install DoWeb.CodeWithMe
 ```
 
-## Some notes
+**Arch Linux (AUR)**
 
-We are very very early in this project. Expect bugs.
+```bash
+yay -S codewithme-bin
+```
 
-We are not accepting contributions yet.
+## Prerequisites
 
-Observability guide: [docs/observability.md](./docs/observability.md)
+Install and authenticate at least one provider:
 
-## If you REALLY want to contribute still.... read this first
+- **Codex**: Install [Codex CLI](https://github.com/openai/codex), then run `codex login`
+- **Claude**: Install [Claude Code](https://docs.anthropic.com/en/docs/claude-code), then run `claude auth login`
 
-Read [CONTRIBUTING.md](./CONTRIBUTING.md) before opening an issue or PR.
+## Development
 
-Need support? Join the [Discord](https://discord.gg/jn4EGJjrvv).
+```bash
+bun install
+bun dev
+```
+
+## Tech Stack
+
+- **Server**: Node.js, Effect, WebSocket
+- **Web**: React, Vite, Tailwind CSS
+- **Desktop**: Electron
+- **Shared**: Effect Schema contracts, shared runtime utilities
+
+## License
+
+MIT - see [LICENSE](./LICENSE)
+
+## Author
+
+Dominik Weber ([@do-web](https://github.com/do-web))

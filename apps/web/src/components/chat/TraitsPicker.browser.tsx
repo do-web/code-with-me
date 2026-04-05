@@ -9,7 +9,7 @@ import {
   ProjectId,
   type ServerProvider,
   ThreadId,
-} from "@t3tools/contracts";
+} from "@codewithme/contracts";
 import { page } from "vitest/browser";
 import { useCallback } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -23,7 +23,7 @@ import {
   useComposerThreadDraft,
   useEffectiveComposerModelState,
 } from "../../composerDraftStore";
-import { DEFAULT_CLIENT_SETTINGS } from "@t3tools/contracts/settings";
+import { DEFAULT_CLIENT_SETTINGS } from "@codewithme/contracts/settings";
 
 // ── Claude TraitsPicker tests ─────────────────────────────────────────
 

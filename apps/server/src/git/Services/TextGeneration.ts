@@ -8,9 +8,9 @@
  */
 import { ServiceMap } from "effect";
 import type { Effect } from "effect";
-import type { ChatAttachment, ModelSelection } from "@t3tools/contracts";
+import type { ChatAttachment, ModelSelection } from "@codewithme/contracts";
 
-import type { TextGenerationError } from "@t3tools/contracts";
+import type { TextGenerationError } from "@codewithme/contracts";
 
 /** Providers that support git text generation (commit messages, PR content, branch names). */
 export type TextGenerationProvider = "codex" | "claudeAgent";
@@ -119,5 +119,5 @@ export interface TextGenerationShape {
  * TextGeneration - Service tag for commit and PR text generation.
  */
 export class TextGeneration extends ServiceMap.Service<TextGeneration, TextGenerationShape>()(
-  "t3/git/Services/TextGeneration",
+  "codewithme/git/Services/TextGeneration",
 ) {}

@@ -48,13 +48,13 @@ import {
   ProjectId,
   ThreadId,
   type GitStatusResult,
-} from "@t3tools/contracts";
+} from "@codewithme/contracts";
 import { useQueries } from "@tanstack/react-query";
 import { Link, useLocation, useNavigate, useParams } from "@tanstack/react-router";
 import {
   type SidebarProjectSortOrder,
   type SidebarThreadSortOrder,
-} from "@t3tools/contracts/settings";
+} from "@codewithme/contracts/settings";
 import { isElectron } from "../env";
 import { APP_STAGE_LABEL, APP_VERSION } from "../branding";
 import { isTerminalFocused } from "../lib/terminalFocus";
@@ -190,7 +190,7 @@ function ThreadStatusLabel({
   return (
     <span
       title={status.label}
-      className={`inline-flex items-center gap-1 text-[10px] ${status.colorClass}`}
+      className={`inline-flex items-center gap-1 text-xs ${status.colorClass}`}
     >
       <span
         className={`h-1.5 w-1.5 rounded-full ${status.dotClass} ${
@@ -394,7 +394,7 @@ function SidebarThreadRow(props: SidebarThreadRowProps) {
                   element.select();
                 }
               }}
-              className="min-w-0 flex-1 truncate text-xs bg-transparent outline-none border border-ring rounded px-0.5"
+              className="min-w-0 flex-1 truncate text-sm bg-transparent outline-none border border-ring rounded px-0.5"
               value={props.renamingTitle}
               onChange={(event) => props.setRenamingTitle(event.target.value)}
               onKeyDown={(event) => {
@@ -417,7 +417,7 @@ function SidebarThreadRow(props: SidebarThreadRowProps) {
               onClick={(event) => event.stopPropagation()}
             />
           ) : (
-            <span className="min-w-0 flex-1 truncate text-xs">{thread.title}</span>
+            <span className="min-w-0 flex-1 truncate text-sm">{thread.title}</span>
           )}
         </div>
         <div className="ml-auto flex shrink-0 items-center gap-1.5">
@@ -445,7 +445,7 @@ function SidebarThreadRow(props: SidebarThreadRowProps) {
                 data-thread-selection-safe
                 data-testid={`thread-archive-confirm-${thread.id}`}
                 aria-label={`Confirm archive ${thread.title}`}
-                className="absolute top-1/2 right-1 inline-flex h-5 -translate-y-1/2 cursor-pointer items-center rounded-full bg-destructive/12 px-2 text-[10px] font-medium text-destructive transition-colors hover:bg-destructive/18 focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-destructive/40"
+                className="absolute top-1/2 right-1 inline-flex h-5 -translate-y-1/2 cursor-pointer items-center rounded-full bg-destructive/12 px-2 text-xs font-medium text-destructive transition-colors hover:bg-destructive/18 focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-destructive/40"
                 onPointerDown={(event) => {
                   event.stopPropagation();
                 }}
@@ -516,14 +516,14 @@ function SidebarThreadRow(props: SidebarThreadRowProps) {
             <span className={threadMetaClassName}>
               {props.showThreadJumpHints && props.jumpLabel ? (
                 <span
-                  className="inline-flex h-5 items-center rounded-full border border-border/80 bg-background/90 px-1.5 font-mono text-[10px] font-medium tracking-tight text-foreground shadow-sm"
+                  className="inline-flex h-5 items-center rounded-full border border-border/80 bg-background/90 px-1.5 font-mono text-xs font-medium tracking-tight text-foreground shadow-sm"
                   title={props.jumpLabel}
                 >
                   {props.jumpLabel}
                 </span>
               ) : (
                 <span
-                  className={`text-[10px] ${
+                  className={`text-xs ${
                     isHighlighted
                       ? "text-foreground/72 dark:text-foreground/82"
                       : "text-muted-foreground/40"
@@ -586,9 +586,7 @@ function ProjectSortMenu({
       </Tooltip>
       <MenuPopup align="end" side="bottom" className="min-w-44">
         <MenuGroup>
-          <div className="px-2 py-1 sm:text-xs font-medium text-muted-foreground">
-            Sort projects
-          </div>
+          <div className="px-2 py-1 text-sm font-medium text-muted-foreground">Sort projects</div>
           <MenuRadioGroup
             value={projectSortOrder}
             onValueChange={(value) => {
@@ -597,7 +595,7 @@ function ProjectSortMenu({
           >
             {(Object.entries(SIDEBAR_SORT_LABELS) as Array<[SidebarProjectSortOrder, string]>).map(
               ([value, label]) => (
-                <MenuRadioItem key={value} value={value} className="min-h-7 py-1 sm:text-xs">
+                <MenuRadioItem key={value} value={value} className="min-h-7 py-1 text-sm">
                   {label}
                 </MenuRadioItem>
               ),
@@ -605,7 +603,7 @@ function ProjectSortMenu({
           </MenuRadioGroup>
         </MenuGroup>
         <MenuGroup>
-          <div className="px-2 pt-2 pb-1 sm:text-xs font-medium text-muted-foreground">
+          <div className="px-2 pt-2 pb-1 text-sm font-medium text-muted-foreground">
             Sort threads
           </div>
           <MenuRadioGroup
@@ -617,7 +615,7 @@ function ProjectSortMenu({
             {(
               Object.entries(SIDEBAR_THREAD_SORT_LABELS) as Array<[SidebarThreadSortOrder, string]>
             ).map(([value, label]) => (
-              <MenuRadioItem key={value} value={value} className="min-h-7 py-1 sm:text-xs">
+              <MenuRadioItem key={value} value={value} className="min-h-7 py-1 text-sm">
                 {label}
               </MenuRadioItem>
             ))}
@@ -716,6 +714,8 @@ export default function Sidebar() {
   const renamingInputRef = useRef<HTMLInputElement | null>(null);
   const confirmArchiveButtonRefs = useRef(new Map<ThreadId, HTMLButtonElement>());
   const dragInProgressRef = useRef(false);
+  const folderDropDepthRef = useRef(0);
+  const [isDroppingFolder, setIsDroppingFolder] = useState(false);
   const suppressProjectClickAfterDragRef = useRef(false);
   const suppressProjectClickForContextMenuRef = useRef(false);
   const [desktopUpdateState, setDesktopUpdateState] = useState<DesktopUpdateState | null>(null);
@@ -1253,19 +1253,18 @@ export default function Sidebar() {
       if (clicked !== "delete") return;
 
       const projectThreadIds = threadIdsByProjectId[projectId] ?? [];
-      if (projectThreadIds.length > 0) {
-        toastManager.add({
-          type: "warning",
-          title: "Project is not empty",
-          description: "Delete all threads in this project before removing it.",
-        });
-        return;
-      }
-
-      const confirmed = await api.dialogs.confirm(`Remove project "${project.name}"?`);
+      const threadCount = projectThreadIds.length;
+      const confirmMessage =
+        threadCount > 0
+          ? `Remove project "${project.name}" and its ${threadCount} thread${threadCount === 1 ? "" : "s"}?`
+          : `Remove project "${project.name}"?`;
+      const confirmed = await api.dialogs.confirm(confirmMessage);
       if (!confirmed) return;
 
       try {
+        for (const threadId of projectThreadIds) {
+          await deleteThread(threadId);
+        }
         const projectDraftThread = getDraftThreadByProjectId(projectId);
         if (projectDraftThread) {
           clearComposerDraftForThread(projectDraftThread.threadId);
@@ -1290,6 +1289,7 @@ export default function Sidebar() {
       clearComposerDraftForThread,
       clearProjectDraftThreadId,
       copyPathToClipboard,
+      deleteThread,
       getDraftThreadByProjectId,
       projects,
       threadIdsByProjectId,
@@ -1341,6 +1341,49 @@ export default function Sidebar() {
   const handleProjectDragCancel = useCallback((_event: DragCancelEvent) => {
     dragInProgressRef.current = false;
   }, []);
+
+  const handleFolderDragEnter = useCallback((event: React.DragEvent) => {
+    if (!event.dataTransfer.types.includes("Files")) return;
+    event.preventDefault();
+    folderDropDepthRef.current += 1;
+    if (folderDropDepthRef.current === 1) {
+      setIsDroppingFolder(true);
+    }
+  }, []);
+
+  const handleFolderDragOver = useCallback((event: React.DragEvent) => {
+    if (!event.dataTransfer.types.includes("Files")) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "copy";
+  }, []);
+
+  const handleFolderDragLeave = useCallback(() => {
+    folderDropDepthRef.current -= 1;
+    if (folderDropDepthRef.current <= 0) {
+      folderDropDepthRef.current = 0;
+      setIsDroppingFolder(false);
+    }
+  }, []);
+
+  const handleFolderDrop = useCallback(
+    (event: React.DragEvent) => {
+      event.preventDefault();
+      folderDropDepthRef.current = 0;
+      setIsDroppingFolder(false);
+
+      const file = event.dataTransfer.files[0];
+      if (!file) return;
+
+      const bridge = window.desktopBridge;
+      if (!bridge) return;
+
+      const filePath = bridge.getPathForFile(file);
+      if (!filePath) return;
+
+      void addProjectFromPath(filePath);
+    },
+    [addProjectFromPath],
+  );
 
   const animatedProjectListsRef = useRef(new WeakSet<HTMLElement>());
   const attachProjectListAutoAnimateRef = useCallback((node: HTMLElement | null) => {
@@ -1637,7 +1680,7 @@ export default function Sidebar() {
               />
             )}
             <ProjectFavicon cwd={project.cwd} />
-            <span className="flex-1 truncate text-xs font-medium text-foreground/90">
+            <span className="flex-1 truncate text-sm font-medium text-foreground/90">
               {project.name}
             </span>
           </SidebarMenuButton>
@@ -1707,7 +1750,7 @@ export default function Sidebar() {
             <SidebarMenuSubItem className="w-full" data-thread-selection-safe>
               <div
                 data-thread-selection-safe
-                className="flex h-6 w-full translate-x-0 items-center px-2 text-left text-[10px] text-muted-foreground/60"
+                className="flex h-6 w-full translate-x-0 items-center px-2 text-left text-xs text-muted-foreground/60"
               >
                 <span>No threads yet</span>
               </div>
@@ -1751,7 +1794,7 @@ export default function Sidebar() {
                 render={<button type="button" />}
                 data-thread-selection-safe
                 size="sm"
-                className="h-6 w-full translate-x-0 justify-start px-2 text-left text-[10px] text-muted-foreground/60 hover:bg-accent hover:text-muted-foreground/80"
+                className="h-6 w-full translate-x-0 justify-start px-2 text-left text-xs text-muted-foreground/60 hover:bg-accent hover:text-muted-foreground/80"
                 onClick={() => {
                   expandThreadListForProject(project.id);
                 }}
@@ -1769,7 +1812,7 @@ export default function Sidebar() {
                 render={<button type="button" />}
                 data-thread-selection-safe
                 size="sm"
-                className="h-6 w-full translate-x-0 justify-start px-2 text-left text-[10px] text-muted-foreground/60 hover:bg-accent hover:text-muted-foreground/80"
+                className="h-6 w-full translate-x-0 justify-start px-2 text-left text-xs text-muted-foreground/60 hover:bg-accent hover:text-muted-foreground/80"
                 onClick={() => {
                   collapseThreadListForProject(project.id);
                 }}
@@ -1975,12 +2018,8 @@ export default function Sidebar() {
               className="ml-1 flex min-w-0 flex-1 cursor-pointer items-center gap-1 rounded-md outline-hidden ring-ring transition-colors hover:text-foreground focus-visible:ring-2"
               to="/"
             >
-              <T3Wordmark />
-              <span className="truncate text-sm font-medium tracking-tight text-muted-foreground">
-                Code
-              </span>
-              <span className="rounded-full bg-muted/50 px-1.5 py-0.5 text-[8px] font-medium uppercase tracking-[0.18em] text-muted-foreground/60">
-                {APP_STAGE_LABEL}
+              <span className="truncate text-sm tracking-tight text-muted-foreground">
+                <span className="font-bold text-foreground">Code</span>WithMe
               </span>
             </Link>
           }
@@ -2007,7 +2046,13 @@ export default function Sidebar() {
       {isOnSettings ? (
         <SettingsSidebarNav pathname={pathname} />
       ) : (
-        <>
+        <div
+          className={`flex min-h-0 flex-1 flex-col transition-colors ${isDroppingFolder ? "bg-primary/5 ring-2 ring-inset ring-primary/30 rounded-lg" : ""}`}
+          onDragEnter={handleFolderDragEnter}
+          onDragOver={handleFolderDragOver}
+          onDragLeave={handleFolderDragLeave}
+          onDrop={handleFolderDrop}
+        >
           <SidebarContent className="gap-0">
             {showArm64IntelBuildWarning && arm64IntelBuildWarningDescription ? (
               <SidebarGroup className="px-2 pt-2 pb-0">
@@ -2034,7 +2079,7 @@ export default function Sidebar() {
             ) : null}
             <SidebarGroup className="px-2 py-2">
               <div className="mb-1 flex items-center justify-between pl-2 pr-1.5">
-                <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground/60">
+                <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground/60">
                   Projects
                 </span>
                 <div className="flex items-center gap-1">
@@ -2079,7 +2124,7 @@ export default function Sidebar() {
                   {isElectron && (
                     <button
                       type="button"
-                      className="mb-1.5 flex w-full items-center justify-center gap-2 rounded-md border border-border bg-secondary py-1.5 text-xs text-foreground/80 transition-colors duration-150 hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60"
+                      className="mb-1.5 flex w-full items-center justify-center gap-2 rounded-md border border-border bg-secondary py-1.5 text-sm text-foreground/80 transition-colors duration-150 hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60"
                       onClick={() => void handlePickFolder()}
                       disabled={isPickingFolder || isAddingProject}
                     >
@@ -2090,7 +2135,7 @@ export default function Sidebar() {
                   <div className="flex gap-1.5">
                     <input
                       ref={addProjectInputRef}
-                      className={`min-w-0 flex-1 rounded-md border bg-secondary px-2 py-1 font-mono text-xs text-foreground placeholder:text-muted-foreground/40 focus:outline-none ${
+                      className={`min-w-0 flex-1 rounded-md border bg-secondary px-2 py-1 font-mono text-sm text-foreground placeholder:text-muted-foreground/40 focus:outline-none ${
                         addProjectError
                           ? "border-red-500/70 focus:border-red-500"
                           : "border-border focus:border-ring"
@@ -2112,7 +2157,7 @@ export default function Sidebar() {
                     />
                     <button
                       type="button"
-                      className="shrink-0 rounded-md bg-primary px-2.5 py-1 text-xs font-medium text-primary-foreground transition-colors duration-150 hover:bg-primary/90 disabled:opacity-60"
+                      className="shrink-0 rounded-md bg-primary px-2.5 py-1 text-sm font-medium text-primary-foreground transition-colors duration-150 hover:bg-primary/90 disabled:opacity-60"
                       onClick={handleAddProject}
                       disabled={!canAddProject}
                     >
@@ -2120,7 +2165,7 @@ export default function Sidebar() {
                     </button>
                   </div>
                   {addProjectError && (
-                    <p className="mt-1 px-0.5 text-[11px] leading-tight text-red-400">
+                    <p className="mt-1 px-0.5 text-xs leading-tight text-red-400">
                       {addProjectError}
                     </p>
                   )}
@@ -2163,7 +2208,7 @@ export default function Sidebar() {
               )}
 
               {projects.length === 0 && !shouldShowProjectPathEntry && (
-                <div className="px-2 pt-4 text-center text-xs text-muted-foreground/60">
+                <div className="px-2 pt-4 text-center text-sm text-muted-foreground/60">
                   No projects yet
                 </div>
               )}
@@ -2181,12 +2226,12 @@ export default function Sidebar() {
                   onClick={() => void navigate({ to: "/settings" })}
                 >
                   <SettingsIcon className="size-3.5" />
-                  <span className="text-xs">Settings</span>
+                  <span className="text-sm">Settings</span>
                 </SidebarMenuButton>
               </SidebarMenuItem>
             </SidebarMenu>
           </SidebarFooter>
-        </>
+        </div>
       )}
     </>
   );

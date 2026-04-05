@@ -1,4 +1,4 @@
-import { WsRpcGroup } from "@t3tools/contracts";
+import { WsRpcGroup } from "@codewithme/contracts";
 import { Effect, Layer } from "effect";
 import { RpcClient, RpcSerialization } from "effect/unstable/rpc";
 import * as Socket from "effect/unstable/socket/Socket";

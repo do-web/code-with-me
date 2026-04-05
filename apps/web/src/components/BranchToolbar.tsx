@@ -1,4 +1,4 @@
-import type { ThreadId } from "@t3tools/contracts";
+import type { ThreadId } from "@codewithme/contracts";
 import { FolderIcon, GitForkIcon } from "lucide-react";
 import { useCallback } from "react";
 

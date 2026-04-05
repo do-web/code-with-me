@@ -9,7 +9,7 @@
 import { Schema, ServiceMap } from "effect";
 import type { Effect } from "effect";
 
-import type { ProjectSearchEntriesInput, ProjectSearchEntriesResult } from "@t3tools/contracts";
+import type { ProjectSearchEntriesInput, ProjectSearchEntriesResult } from "@codewithme/contracts";
 
 export class WorkspaceEntriesError extends Schema.TaggedErrorClass<WorkspaceEntriesError>()(
   "WorkspaceEntriesError",
@@ -44,5 +44,5 @@ export interface WorkspaceEntriesShape {
  * WorkspaceEntries - Service tag for cached workspace entry search.
  */
 export class WorkspaceEntries extends ServiceMap.Service<WorkspaceEntries, WorkspaceEntriesShape>()(
-  "t3/workspace/Services/WorkspaceEntries",
+  "codewithme/workspace/Services/WorkspaceEntries",
 ) {}

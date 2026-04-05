@@ -2,7 +2,7 @@ import {
   type GitActionProgressEvent,
   type GitStackedAction,
   type ThreadId,
-} from "@t3tools/contracts";
+} from "@codewithme/contracts";
 import {
   infiniteQueryOptions,
   mutationOptions,

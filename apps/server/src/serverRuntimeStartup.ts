@@ -4,7 +4,7 @@ import {
   type ModelSelection,
   ProjectId,
   ThreadId,
-} from "@t3tools/contracts";
+} from "@codewithme/contracts";
 import {
   Data,
   Deferred,
@@ -28,6 +28,8 @@ import { OrchestrationReactor } from "./orchestration/Services/OrchestrationReac
 import { ServerLifecycleEvents } from "./serverLifecycleEvents";
 import { ServerSettingsService } from "./serverSettings";
 import { AnalyticsService } from "./telemetry/Services/AnalyticsService";
+import { ProviderAccountStatsService } from "./provider/Services/ProviderAccountStats";
+import { probeClaudeUsage } from "./provider/claudeUsageProbe";
 
 const isWildcardHost = (host: string | undefined): boolean =>
   host === "0.0.0.0" || host === "::" || host === "[::]";
@@ -51,7 +53,7 @@ export interface ServerRuntimeStartupShape {
 export class ServerRuntimeStartup extends ServiceMap.Service<
   ServerRuntimeStartup,
   ServerRuntimeStartupShape
->()("t3/serverRuntimeStartup") {}
+>()("codewithme/serverRuntimeStartup") {}
 
 interface QueuedCommand {
   readonly run: Effect.Effect<void, never>;
@@ -321,6 +323,30 @@ const makeServerRuntimeStartup = Effect.gen(function* () {
         type: "welcome",
         payload: welcome,
       }),
+    );
+
+    // Initial Claude usage probe — runs in background, non-blocking
+    yield* Effect.forkScoped(
+      Effect.gen(function* () {
+        const settings = yield* serverSettings.getSettings;
+        if (!settings.providers.claudeAgent.enabled) return;
+        const binary = settings.providers.claudeAgent.binaryPath || "claude";
+        yield* Effect.logInfo("[usage-probe] initial probe starting");
+        const quotas = yield* probeClaudeUsage(binary);
+        yield* Effect.logInfo("[usage-probe] initial probe result", {
+          count: quotas.length,
+          quotas: JSON.stringify(quotas),
+        });
+        if (quotas.length > 0) {
+          const accountStats = yield* ProviderAccountStatsService;
+          yield* accountStats.publish({
+            provider: "claudeAgent",
+            quotas,
+            updatedAt: new Date().toISOString(),
+          });
+          yield* Effect.logInfo("[usage-probe] initial stats published");
+        }
+      }).pipe(Effect.ignoreCause({ log: true })),
     );
   }).pipe(
     Effect.annotateSpans({

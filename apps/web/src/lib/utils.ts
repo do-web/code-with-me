@@ -1,4 +1,4 @@
-import { CommandId, MessageId, ProjectId, ThreadId } from "@t3tools/contracts";
+import { CommandId, MessageId, ProjectId, ThreadId } from "@codewithme/contracts";
 import { String, Predicate } from "effect";
 import { type CxOptions, cx } from "class-variance-authority";
 import { twMerge } from "tailwind-merge";

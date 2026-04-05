@@ -2,7 +2,7 @@ import {
   OrchestrationEvent,
   type ServerLifecycleWelcomePayload,
   type ThreadId,
-} from "@t3tools/contracts";
+} from "@codewithme/contracts";
 import {
   Outlet,
   createRootRouteWithContext,

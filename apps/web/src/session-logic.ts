@@ -9,7 +9,7 @@ import {
   type UserInputQuestion,
   type ThreadId,
   type TurnId,
-} from "@t3tools/contracts";
+} from "@codewithme/contracts";
 
 import type {
   ChatMessage,

@@ -2,7 +2,7 @@ import {
   ApprovalRequestId,
   type ChatAttachment,
   type OrchestrationEvent,
-} from "@t3tools/contracts";
+} from "@codewithme/contracts";
 import { Effect, FileSystem, Layer, Option, Path, Stream } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
@@ -1265,9 +1265,9 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
       );
 
     const bootstrap: OrchestrationProjectionPipelineShape["bootstrap"] = Effect.forEach(
-      projectors,
+      projectors.filter((p) => p.name !== ORCHESTRATION_PROJECTOR_NAMES.checkpoints),
       bootstrapProjector,
-      { concurrency: 1 },
+      { concurrency: "unbounded" },
     ).pipe(
       Effect.provideService(FileSystem.FileSystem, fileSystem),
       Effect.provideService(Path.Path, path),

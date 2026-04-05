@@ -1,4 +1,4 @@
-import type { DesktopRuntimeInfo, DesktopUpdateState } from "@t3tools/contracts";
+import type { DesktopRuntimeInfo, DesktopUpdateState } from "@codewithme/contracts";
 
 import { getCanRetryAfterDownloadFailure, nextStatusAfterDownloadFailure } from "./updateState";
 

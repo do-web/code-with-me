@@ -10,11 +10,11 @@
 import { Effect, Layer, Option, Schema, Stream } from "effect";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 
-import { ClaudeModelSelection } from "@t3tools/contracts";
-import { resolveApiModelId } from "@t3tools/shared/model";
-import { sanitizeBranchFragment, sanitizeFeatureBranchName } from "@t3tools/shared/git";
+import { ClaudeModelSelection } from "@codewithme/contracts";
+import { resolveApiModelId } from "@codewithme/shared/model";
+import { sanitizeBranchFragment, sanitizeFeatureBranchName } from "@codewithme/shared/git";
 
-import { TextGenerationError } from "@t3tools/contracts";
+import { TextGenerationError } from "@codewithme/contracts";
 import { type TextGenerationShape, TextGeneration } from "../Services/TextGeneration.ts";
 import {
   buildBranchNamePrompt,
@@ -29,7 +29,7 @@ import {
   sanitizeThreadTitle,
   toJsonSchemaObject,
 } from "../Utils.ts";
-import { normalizeClaudeModelOptionsWithCapabilities } from "@t3tools/shared/model";
+import { normalizeClaudeModelOptionsWithCapabilities } from "@codewithme/shared/model";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { getClaudeModelCapabilities } from "../../provider/Layers/ClaudeProvider.ts";
 

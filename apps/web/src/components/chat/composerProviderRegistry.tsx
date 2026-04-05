@@ -3,15 +3,15 @@ import {
   type ProviderModelOptions,
   type ServerProviderModel,
   type ThreadId,
-} from "@t3tools/contracts";
-import { isClaudeUltrathinkPrompt, resolveEffort } from "@t3tools/shared/model";
+} from "@codewithme/contracts";
+import { isClaudeUltrathinkPrompt, resolveEffort } from "@codewithme/shared/model";
 import type { ReactNode } from "react";
 import { getProviderModelCapabilities } from "../../providerModels";
 import { TraitsMenuContent, TraitsPicker } from "./TraitsPicker";
 import {
   normalizeClaudeModelOptionsWithCapabilities,
   normalizeCodexModelOptionsWithCapabilities,
-} from "@t3tools/shared/model";
+} from "@codewithme/shared/model";
 
 export type ComposerProviderStateInput = {
   provider: ProviderKind;

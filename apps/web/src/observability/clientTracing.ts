@@ -8,9 +8,9 @@ import { APP_VERSION } from "~/branding";
 
 const DEFAULT_EXPORT_INTERVAL_MS = 1_000;
 const CLIENT_TRACING_RESOURCE = {
-  serviceName: "t3-web",
+  serviceName: "codewithme-web",
   attributes: {
-    "service.runtime": "t3-web",
+    "service.runtime": "codewithme-web",
     "service.mode": isElectron ? "electron" : "browser",
     "service.version": APP_VERSION,
   },

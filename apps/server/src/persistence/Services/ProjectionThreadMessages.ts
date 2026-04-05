@@ -13,7 +13,7 @@ import {
   ThreadId,
   TurnId,
   IsoDateTime,
-} from "@t3tools/contracts";
+} from "@codewithme/contracts";
 import { Schema, ServiceMap } from "effect";
 import type { Option } from "effect";
 import type { Effect } from "effect";
@@ -91,4 +91,4 @@ export interface ProjectionThreadMessageRepositoryShape {
 export class ProjectionThreadMessageRepository extends ServiceMap.Service<
   ProjectionThreadMessageRepository,
   ProjectionThreadMessageRepositoryShape
->()("t3/persistence/Services/ProjectionThreadMessages/ProjectionThreadMessageRepository") {}
+>()("codewithme/persistence/Services/ProjectionThreadMessages/ProjectionThreadMessageRepository") {}

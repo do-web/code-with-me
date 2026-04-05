@@ -25,6 +25,7 @@ export const EDITORS = [
   { id: "zed", label: "Zed", command: "zed", launchStyle: "direct-path" },
   { id: "antigravity", label: "Antigravity", command: "agy", launchStyle: "goto" },
   { id: "idea", label: "IntelliJ IDEA", command: "idea", launchStyle: "line-column" },
+  { id: "phpstorm", label: "PhpStorm", command: "phpstorm", launchStyle: "line-column" },
   { id: "file-manager", label: "File Manager", command: null, launchStyle: "direct-path" },
 ] as const satisfies ReadonlyArray<EditorDefinition>;
 

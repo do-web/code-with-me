@@ -1,38 +1,41 @@
-import { useAtomValue } from "@effect/atom-react";
+import { useMemo, useSyncExternalStore } from "react";
 import type { ProviderAccountStatsSnapshot, ProviderKind } from "@codewithme/contracts";
-import { Atom } from "effect/unstable/reactivity";
 
-import { appAtomRegistry } from "./atomRegistry";
+type ProviderAccountStatsMap = Readonly<Record<string, ProviderAccountStatsSnapshot>>;
 
-type ProviderAccountStatsMap = Record<string, ProviderAccountStatsSnapshot>;
+let currentStats: ProviderAccountStatsMap = {};
+const listeners = new Set<() => void>();
 
-const EMPTY_STATS: ProviderAccountStatsMap = {};
-
-const providerAccountStatsAtom = Atom.make<ProviderAccountStatsMap>(EMPTY_STATS).pipe(
-  Atom.keepAlive,
-  Atom.withLabel("provider-account-stats"),
-);
-
-export function applyProviderAccountStatsUpdate(snapshot: ProviderAccountStatsSnapshot): void {
-  const current = appAtomRegistry.get(providerAccountStatsAtom);
-  appAtomRegistry.set(providerAccountStatsAtom, {
-    ...current,
-    [snapshot.provider]: snapshot,
-  });
+function emitChange(): void {
+  for (const listener of listeners) {
+    listener();
+  }
 }
 
-function selectByProvider(
-  provider: ProviderKind,
-): (map: ProviderAccountStatsMap) => ProviderAccountStatsSnapshot | null {
-  return (map) => map[provider] ?? null;
+function subscribe(listener: () => void): () => void {
+  listeners.add(listener);
+  return () => {
+    listeners.delete(listener);
+  };
+}
+
+function getSnapshot(): ProviderAccountStatsMap {
+  return currentStats;
+}
+
+export function applyProviderAccountStatsUpdate(snapshot: ProviderAccountStatsSnapshot): void {
+  currentStats = { ...currentStats, [snapshot.provider]: snapshot };
+  emitChange();
 }
 
 export function useProviderAccountStats(
   provider: ProviderKind,
 ): ProviderAccountStatsSnapshot | null {
-  return useAtomValue(providerAccountStatsAtom, selectByProvider(provider));
+  const state = useSyncExternalStore(subscribe, getSnapshot);
+  return useMemo(() => state[provider] ?? null, [state, provider]);
 }
 
 export function resetProviderAccountStatsForTests(): void {
-  appAtomRegistry.set(providerAccountStatsAtom, EMPTY_STATS);
+  currentStats = {};
+  listeners.clear();
 }

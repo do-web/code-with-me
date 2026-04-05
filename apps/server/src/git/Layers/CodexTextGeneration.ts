@@ -3,12 +3,12 @@ import { randomUUID } from "node:crypto";
 import { Effect, FileSystem, Layer, Option, Path, Schema, Scope, Stream } from "effect";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 
-import { CodexModelSelection } from "@t3tools/contracts";
-import { sanitizeBranchFragment, sanitizeFeatureBranchName } from "@t3tools/shared/git";
+import { CodexModelSelection } from "@codewithme/contracts";
+import { sanitizeBranchFragment, sanitizeFeatureBranchName } from "@codewithme/shared/git";
 
 import { resolveAttachmentPath } from "../../attachmentStore.ts";
 import { ServerConfig } from "../../config.ts";
-import { TextGenerationError } from "@t3tools/contracts";
+import { TextGenerationError } from "@codewithme/contracts";
 import {
   type BranchNameGenerationInput,
   type ThreadTitleGenerationResult,
@@ -30,7 +30,7 @@ import {
 } from "../Utils.ts";
 import { getCodexModelCapabilities } from "../../provider/Layers/CodexProvider.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
-import { normalizeCodexModelOptionsWithCapabilities } from "@t3tools/shared/model";
+import { normalizeCodexModelOptionsWithCapabilities } from "@codewithme/shared/model";
 
 const CODEX_GIT_TEXT_GENERATION_REASONING_EFFORT = "low";
 const CODEX_TIMEOUT_MS = 180_000;
@@ -67,7 +67,7 @@ const makeCodexTextGeneration = Effect.gen(function* () {
   ): Effect.Effect<string, TextGenerationError, Scope.Scope> => {
     return fileSystem
       .makeTempFileScoped({
-        prefix: `t3code-${prefix}-${process.pid}-${randomUUID()}.tmp`,
+        prefix: `codewithme-${prefix}-${process.pid}-${randomUUID()}.tmp`,
       })
       .pipe(
         Effect.tap((filePath) => fileSystem.writeFileString(filePath, content)),

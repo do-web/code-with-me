@@ -1,4 +1,4 @@
-import { type MessageId } from "@t3tools/contracts";
+import { type MessageId } from "@codewithme/contracts";
 import { type TimelineEntry, type WorkLogEntry } from "../../session-logic";
 import { buildTurnDiffTree, type TurnDiffTreeNode } from "../../lib/turnDiffTree";
 import { type ChatMessage, type ProposedPlan, type TurnDiffSummary } from "../../types";

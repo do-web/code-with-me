@@ -1,6 +1,6 @@
 import "../../index.css";
 
-import { MessageId, type TurnId } from "@t3tools/contracts";
+import { MessageId, type TurnId } from "@codewithme/contracts";
 import { page } from "vitest/browser";
 import { useCallback, useState, type ComponentProps } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";

@@ -18,7 +18,7 @@ import {
   ResolvedKeybindingsConfig,
   THREAD_JUMP_KEYBINDING_COMMANDS,
   type ServerConfigIssue,
-} from "@t3tools/contracts";
+} from "@codewithme/contracts";
 import { Mutable } from "effect/Types";
 import {
   Array,
@@ -45,7 +45,7 @@ import {
 } from "effect";
 import * as Semaphore from "effect/Semaphore";
 import { ServerConfig } from "./config";
-import { fromLenientJson } from "@t3tools/shared/schemaJson";
+import { fromLenientJson } from "@codewithme/shared/schemaJson";
 
 type WhenToken =
   | { type: "identifier"; value: string }
@@ -522,7 +522,7 @@ export interface KeybindingsShape {
  * Keybindings - Service tag for keybinding configuration operations.
  */
 export class Keybindings extends ServiceMap.Service<Keybindings, KeybindingsShape>()(
-  "t3/keybindings",
+  "codewithme/keybindings",
 ) {}
 
 const makeKeybindings = Effect.gen(function* () {

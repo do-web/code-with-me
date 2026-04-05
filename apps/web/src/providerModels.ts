@@ -4,8 +4,8 @@ import {
   type ProviderKind,
   type ServerProvider,
   type ServerProviderModel,
-} from "@t3tools/contracts";
-import { normalizeModelSlug } from "@t3tools/shared/model";
+} from "@codewithme/contracts";
+import { normalizeModelSlug } from "@codewithme/shared/model";
 
 const EMPTY_CAPABILITIES: ModelCapabilities = {
   reasoningEffortLevels: [],

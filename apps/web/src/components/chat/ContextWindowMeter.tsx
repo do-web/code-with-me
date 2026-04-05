@@ -35,7 +35,7 @@ export function ContextWindowMeter({
     <Popover>
       <PopoverTrigger
         openOnHover
-        delay={150}
+        delay={0}
         closeDelay={0}
         render={
           <button

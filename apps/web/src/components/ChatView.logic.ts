@@ -1,4 +1,4 @@
-import { ProjectId, type ModelSelection, type ThreadId, type TurnId } from "@t3tools/contracts";
+import { ProjectId, type ModelSelection, type ThreadId, type TurnId } from "@codewithme/contracts";
 import { type ChatMessage, type SessionPhase, type Thread, type ThreadSession } from "../types";
 import { randomUUID } from "~/lib/utils";
 import { type ComposerImageAttachment, type DraftThreadState } from "../composerDraftStore";
@@ -10,9 +10,9 @@ import {
   type TerminalContextDraft,
 } from "../lib/terminalContext";
 
-export const LAST_INVOKED_SCRIPT_BY_PROJECT_KEY = "t3code:last-invoked-script-by-project";
+export const LAST_INVOKED_SCRIPT_BY_PROJECT_KEY = "codewithme:last-invoked-script-by-project";
 export const MAX_HIDDEN_MOUNTED_TERMINAL_THREADS = 10;
-const WORKTREE_BRANCH_PREFIX = "t3code";
+const WORKTREE_BRANCH_PREFIX = "codewithme";
 
 export const LastInvokedScriptByProjectSchema = Schema.Record(ProjectId, Schema.String);
 
@@ -154,6 +154,7 @@ export function cloneComposerImageForRetry(
 export function deriveComposerSendState(options: {
   prompt: string;
   imageCount: number;
+  fileCount?: number;
   terminalContexts: ReadonlyArray<TerminalContextDraft>;
 }): {
   trimmedPrompt: string;
@@ -170,7 +171,10 @@ export function deriveComposerSendState(options: {
     sendableTerminalContexts,
     expiredTerminalContextCount,
     hasSendableContent:
-      trimmedPrompt.length > 0 || options.imageCount > 0 || sendableTerminalContexts.length > 0,
+      trimmedPrompt.length > 0 ||
+      options.imageCount > 0 ||
+      (options.fileCount ?? 0) > 0 ||
+      sendableTerminalContexts.length > 0,
   };
 }
 

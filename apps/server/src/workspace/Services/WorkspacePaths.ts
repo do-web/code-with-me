@@ -81,5 +81,5 @@ export interface WorkspacePathsShape {
  * WorkspacePaths - Service tag for workspace path normalization and resolution.
  */
 export class WorkspacePaths extends ServiceMap.Service<WorkspacePaths, WorkspacePathsShape>()(
-  "t3/workspace/Services/WorkspacePaths",
+  "codewithme/workspace/Services/WorkspacePaths",
 ) {}

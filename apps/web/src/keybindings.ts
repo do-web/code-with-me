@@ -5,7 +5,7 @@ import {
   type ResolvedKeybindingsConfig,
   THREAD_JUMP_KEYBINDING_COMMANDS,
   type ThreadJumpKeybindingCommand,
-} from "@t3tools/contracts";
+} from "@codewithme/contracts";
 import { isMacPlatform } from "./lib/utils";
 
 export interface ShortcutEventLike {

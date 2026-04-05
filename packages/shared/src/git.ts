@@ -1,4 +1,4 @@
-import type { GitBranch } from "@t3tools/contracts";
+import type { GitBranch } from "@codewithme/contracts";
 
 /**
  * Sanitize an arbitrary string into a valid, lowercase git branch fragment.

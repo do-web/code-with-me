@@ -18,6 +18,8 @@ import { makeDrainableWorker } from "@codewithme/shared/DrainableWorker";
 
 import { ProviderService } from "../../provider/Services/ProviderService.ts";
 import { ProviderAccountStatsService } from "../../provider/Services/ProviderAccountStats.ts";
+import { probeClaudeUsage } from "../../provider/claudeUsageProbe.ts";
+import type { ProviderQuota } from "@codewithme/contracts";
 import {
   normalizeClaudeRateLimits,
   normalizeCodexRateLimits,
@@ -1243,29 +1245,66 @@ const make = Effect.fn("make")(function* () {
 
     if (event.type === "account.rate-limits.updated") {
       const provider = event.provider;
-      const rawLimits = (event.payload as { rateLimits?: unknown }).rateLimits;
-      const newQuotas =
-        provider === "claudeAgent"
-          ? normalizeClaudeRateLimits(rawLimits)
-          : normalizeCodexRateLimits(rawLimits);
 
-      if (newQuotas.length > 0) {
-        const existing = latestQuotasByProvider[provider] ?? {};
-        for (const quota of newQuotas) {
-          existing[quota.name] = quota;
+      if (provider === "claudeAgent") {
+        // Fire CLI probe in background — non-blocking, gets real Session/Weekly/Sonnet data
+        yield* Effect.logInfo("[usage-probe] starting CLI probe for Claude");
+        yield* Effect.forkScoped(
+          Effect.gen(function* () {
+            yield* Effect.logInfo("[usage-probe] forked task running");
+            const settings = yield* serverSettingsService.getSettings;
+            const binary = settings.providers.claudeAgent.binaryPath || "claude";
+            yield* Effect.logInfo("[usage-probe] calling probeClaudeUsage", { binary });
+            const cliQuotas = yield* probeClaudeUsage(binary);
+            yield* Effect.logInfo("[usage-probe] probe returned", {
+              count: cliQuotas.length,
+              quotas: JSON.stringify(cliQuotas),
+            });
+            if (cliQuotas.length > 0) {
+              const existing = latestQuotasByProvider[provider] ?? {};
+              for (const quota of cliQuotas) {
+                existing[quota.name] = quota;
+              }
+              latestQuotasByProvider[provider] = existing;
+              const latest = yield* providerAccountStats.getLatest(provider);
+              yield* providerAccountStats.publish({
+                provider,
+                plan: latest?.plan,
+                email: latest?.email,
+                quotas: Object.values(existing),
+                sessionCostUsd: sessionCostByProvider[provider],
+                sessionTokensTotal: sessionTokensByProvider[provider],
+                updatedAt: new Date().toISOString(),
+              });
+              yield* Effect.logInfo("[usage-probe] published stats", {
+                quotaNames: Object.keys(existing),
+              });
+            } else {
+              yield* Effect.logWarning("[usage-probe] probe returned 0 quotas");
+            }
+          }).pipe(Effect.ignoreCause({ log: true })),
+        );
+      } else {
+        // Codex: use SDK normalization directly
+        const rawLimits = (event.payload as { rateLimits?: unknown }).rateLimits;
+        const newQuotas = normalizeCodexRateLimits(rawLimits);
+        if (newQuotas.length > 0) {
+          const existing = latestQuotasByProvider[provider] ?? {};
+          for (const quota of newQuotas) {
+            existing[quota.name] = quota;
+          }
+          latestQuotasByProvider[provider] = existing;
+          const latest = yield* providerAccountStats.getLatest(provider);
+          yield* providerAccountStats.publish({
+            provider,
+            plan: latest?.plan,
+            email: latest?.email,
+            quotas: Object.values(existing),
+            sessionCostUsd: sessionCostByProvider[provider],
+            sessionTokensTotal: sessionTokensByProvider[provider],
+            updatedAt: event.createdAt,
+          });
         }
-        latestQuotasByProvider[provider] = existing;
-
-        const latest = yield* providerAccountStats.getLatest(provider);
-        yield* providerAccountStats.publish({
-          provider,
-          plan: latest?.plan,
-          email: latest?.email,
-          quotas: Object.values(existing),
-          sessionCostUsd: sessionCostByProvider[provider],
-          sessionTokensTotal: sessionTokensByProvider[provider],
-          updatedAt: event.createdAt,
-        });
       }
     }
 

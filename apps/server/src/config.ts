@@ -110,7 +110,7 @@ export const ensureServerDirectories = Effect.fn(function* (derivedPaths: Server
  * ServerConfig - Service tag for server runtime configuration.
  */
 export class ServerConfig extends ServiceMap.Service<ServerConfig, ServerConfigShape>()(
-  "t3/config/ServerConfig",
+  "codewithme/config/ServerConfig",
 ) {
   static readonly layerTest = (cwd: string, baseDirOrPrefix: string | { prefix: string }) =>
     Layer.effect(
@@ -136,7 +136,7 @@ export class ServerConfig extends ServiceMap.Service<ServerConfig, ServerConfigS
           otlpTracesUrl: undefined,
           otlpMetricsUrl: undefined,
           otlpExportIntervalMs: 10_000,
-          otlpServiceName: "t3-server",
+          otlpServiceName: "codewithme-server",
           cwd,
           baseDir,
           ...derivedPaths,

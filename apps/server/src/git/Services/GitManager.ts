@@ -16,10 +16,10 @@ import {
   GitRunStackedActionResult,
   GitStatusInput,
   GitStatusResult,
-} from "@t3tools/contracts";
+} from "@codewithme/contracts";
 import { ServiceMap } from "effect";
 import type { Effect } from "effect";
-import type { GitManagerServiceError } from "@t3tools/contracts";
+import type { GitManagerServiceError } from "@codewithme/contracts";
 
 export interface GitActionProgressReporter {
   readonly publish: (event: GitActionProgressEvent) => Effect.Effect<void, never>;
@@ -69,5 +69,5 @@ export interface GitManagerShape {
  * GitManager - Service tag for stacked Git workflow orchestration.
  */
 export class GitManager extends ServiceMap.Service<GitManager, GitManagerShape>()(
-  "t3/git/Services/GitManager",
+  "codewithme/git/Services/GitManager",
 ) {}

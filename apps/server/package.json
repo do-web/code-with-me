@@ -1,14 +1,14 @@
 {
-  "name": "t3",
+  "name": "codewithme",
   "version": "0.0.15",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/pingdotgg/t3code",
+    "url": "https://github.com/do-web/code",
     "directory": "apps/server"
   },
   "bin": {
-    "t3": "./dist/bin.mjs"
+    "codewithme": "./dist/bin.mjs"
   },
   "files": [
     "dist"
@@ -33,11 +33,11 @@
     "open": "^10.1.0"
   },
   "devDependencies": {
+    "@codewithme/contracts": "workspace:*",
+    "@codewithme/shared": "workspace:*",
+    "@codewithme/web": "workspace:*",
     "@effect/language-service": "catalog:",
     "@effect/vitest": "catalog:",
-    "@t3tools/contracts": "workspace:*",
-    "@t3tools/shared": "workspace:*",
-    "@t3tools/web": "workspace:*",
     "@types/bun": "catalog:",
     "@types/node": "catalog:",
     "tsdown": "catalog:",

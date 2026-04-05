@@ -24,6 +24,8 @@ export const gitQueryKeys = {
   branches: (cwd: string | null) => ["git", "branches", cwd] as const,
   branchSearch: (cwd: string | null, query: string) =>
     ["git", "branches", cwd, "search", query] as const,
+  fileDiff: (cwd: string | null, filePath: string | null) =>
+    ["git", "fileDiff", cwd, filePath] as const,
 };
 
 export const gitMutationKeys = {
@@ -33,6 +35,7 @@ export const gitMutationKeys = {
   pull: (cwd: string | null) => ["git", "mutation", "pull", cwd] as const,
   preparePullRequestThread: (cwd: string | null) =>
     ["git", "mutation", "prepare-pull-request-thread", cwd] as const,
+  discardChanges: (cwd: string | null) => ["git", "mutation", "discard-changes", cwd] as const,
 };
 
 export function invalidateGitQueries(queryClient: QueryClient, input?: { cwd?: string | null }) {
@@ -267,6 +270,36 @@ export function gitPreparePullRequestThreadMutationOptions(input: {
       });
     },
     mutationKey: gitMutationKeys.preparePullRequestThread(input.cwd),
+    onSettled: async () => {
+      await invalidateGitQueries(input.queryClient);
+    },
+  });
+}
+
+export function gitFileDiffQueryOptions(input: { cwd: string | null; filePath: string | null }) {
+  return queryOptions({
+    queryKey: gitQueryKeys.fileDiff(input.cwd, input.filePath),
+    queryFn: async () => {
+      const api = ensureNativeApi();
+      if (!input.cwd || !input.filePath) throw new Error("File diff is unavailable.");
+      return api.git.getFileDiff({ cwd: input.cwd, filePath: input.filePath });
+    },
+    enabled: input.cwd !== null && input.filePath !== null,
+    staleTime: GIT_STATUS_STALE_TIME_MS,
+  });
+}
+
+export function gitDiscardChangesMutationOptions(input: {
+  cwd: string | null;
+  queryClient: QueryClient;
+}) {
+  return mutationOptions({
+    mutationKey: gitMutationKeys.discardChanges(input.cwd),
+    mutationFn: async (filePaths: string[]) => {
+      const api = ensureNativeApi();
+      if (!input.cwd) throw new Error("Discard changes is unavailable.");
+      return api.git.discardChanges({ cwd: input.cwd, filePaths });
+    },
     onSettled: async () => {
       await invalidateGitQueries(input.queryClient);
     },

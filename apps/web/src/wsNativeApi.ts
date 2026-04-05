@@ -68,6 +68,8 @@ export function createWsNativeApi(): NativeApi {
       createBranch: rpcClient.git.createBranch,
       checkout: rpcClient.git.checkout,
       init: rpcClient.git.init,
+      getFileDiff: rpcClient.git.getFileDiff,
+      discardChanges: rpcClient.git.discardChanges,
       resolvePullRequest: rpcClient.git.resolvePullRequest,
       preparePullRequestThread: rpcClient.git.preparePullRequestThread,
     },

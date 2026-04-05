@@ -863,6 +863,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const isLocalDraftThread = !isServerThread && localDraftThread !== undefined;
   const canCheckoutPullRequestIntoThread = isLocalDraftThread;
   const diffOpen = rawSearch.diff === "1";
+  const changesOpen = rawSearch.changes === "1";
   const activeThreadId = activeThread?.id ?? null;
   const existingOpenTerminalThreadIds = useMemo(() => {
     const existingThreadIds = new Set<ThreadId>([...serverThreadIds, ...draftThreadIds]);
@@ -1614,10 +1615,28 @@ export default function ChatView({ threadId }: ChatViewProps) {
       replace: true,
       search: (previous) => {
         const rest = stripDiffSearchParams(previous);
-        return diffOpen ? { ...rest, diff: undefined } : { ...rest, diff: "1" };
+        // Close changes panel when opening diff
+        return diffOpen
+          ? { ...rest, diff: undefined }
+          : { ...rest, diff: "1", changes: undefined };
       },
     });
   }, [diffOpen, navigate, threadId]);
+
+  const onToggleChanges = useCallback(() => {
+    void navigate({
+      to: "/$threadId",
+      params: { threadId },
+      replace: true,
+      search: (previous) => {
+        const rest = stripDiffSearchParams(previous);
+        // Close diff panel when opening changes
+        return changesOpen
+          ? { ...rest, changes: undefined }
+          : { ...rest, changes: "1", diff: undefined };
+      },
+    });
+  }, [changesOpen, navigate, threadId]);
 
   const envLocked = Boolean(
     activeThread &&
@@ -4017,6 +4036,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
           diffToggleShortcutLabel={diffPanelShortcutLabel}
           gitCwd={gitCwd}
           diffOpen={diffOpen}
+          changesOpen={changesOpen}
           onRunProjectScript={(script) => {
             void runProjectScript(script);
           }}
@@ -4025,6 +4045,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
           onDeleteProjectScript={deleteProjectScript}
           onToggleTerminal={toggleTerminalVisibility}
           onToggleDiff={onToggleDiff}
+          onToggleChanges={onToggleChanges}
         />
       </header>
 

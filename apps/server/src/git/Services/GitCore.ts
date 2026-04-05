@@ -13,6 +13,8 @@ import type {
   GitCreateBranchInput,
   GitCreateWorktreeInput,
   GitCreateWorktreeResult,
+  GitDiscardChangesResult,
+  GitGetFileDiffResult,
   GitInitInput,
   GitListBranchesInput,
   GitListBranchesResult,
@@ -296,6 +298,22 @@ export interface GitCoreShape {
    * List local branch names (short format).
    */
   readonly listLocalBranchNames: (cwd: string) => Effect.Effect<string[], GitCommandError>;
+
+  /**
+   * Get unified diff for a single file (tracked or untracked).
+   */
+  readonly getFileDiff: (
+    cwd: string,
+    filePath: string,
+  ) => Effect.Effect<GitGetFileDiffResult, GitCommandError>;
+
+  /**
+   * Discard uncommitted changes for the given file paths (tracked + untracked).
+   */
+  readonly discardChanges: (
+    cwd: string,
+    filePaths: readonly string[],
+  ) => Effect.Effect<GitDiscardChangesResult, GitCommandError>;
 }
 
 /**

@@ -1,4 +1,5 @@
 import {
+  CheckpointRef,
   OrchestrationGetTurnDiffResult,
   type OrchestrationGetFullThreadDiffInput,
   type OrchestrationGetFullThreadDiffResult,
@@ -8,7 +9,7 @@ import { Effect, Layer, Option, Schema } from "effect";
 
 import { ProjectionSnapshotQuery } from "../../orchestration/Services/ProjectionSnapshotQuery.ts";
 import { CheckpointInvariantError, CheckpointUnavailableError } from "../Errors.ts";
-import { checkpointRefForThreadTurn } from "../Utils.ts";
+import { checkpointRefCandidatesForThreadTurn, checkpointRefForThreadTurn } from "../Utils.ts";
 import { CheckpointStore } from "../Services/CheckpointStore.ts";
 import {
   CheckpointDiffQuery,
@@ -71,12 +72,27 @@ const make = Effect.gen(function* () {
         });
       }
 
-      const fromCheckpointRef =
-        input.fromTurnCount === 0
-          ? checkpointRefForThreadTurn(input.threadId, 0)
-          : threadContext.value.checkpoints.find(
-              (checkpoint) => checkpoint.checkpointTurnCount === input.fromTurnCount,
-            )?.checkpointRef;
+      // Resolve the "from" checkpoint ref. For turn 0 the ref is generated
+      // dynamically (not stored in the projection) so we try the current prefix
+      // first, then fall back to legacy prefixes from before the project rebrand.
+      let fromCheckpointRef: CheckpointRef | undefined;
+      if (input.fromTurnCount === 0) {
+        const candidates = checkpointRefCandidatesForThreadTurn(input.threadId, 0);
+        for (const candidate of candidates) {
+          const exists = yield* checkpointStore.hasCheckpointRef({
+            cwd: workspaceCwd,
+            checkpointRef: candidate,
+          });
+          if (exists) {
+            fromCheckpointRef = candidate;
+            break;
+          }
+        }
+      } else {
+        fromCheckpointRef = threadContext.value.checkpoints.find(
+          (checkpoint) => checkpoint.checkpointTurnCount === input.fromTurnCount,
+        )?.checkpointRef;
+      }
       if (!fromCheckpointRef) {
         return yield* new CheckpointUnavailableError({
           threadId: input.threadId,
@@ -96,19 +112,16 @@ const make = Effect.gen(function* () {
         });
       }
 
-      const [fromExists, toExists] = yield* Effect.all(
-        [
-          checkpointStore.hasCheckpointRef({
+      const fromExists = fromCheckpointRef
+        ? yield* checkpointStore.hasCheckpointRef({
             cwd: workspaceCwd,
             checkpointRef: fromCheckpointRef,
-          }),
-          checkpointStore.hasCheckpointRef({
-            cwd: workspaceCwd,
-            checkpointRef: toCheckpointRef,
-          }),
-        ],
-        { concurrency: "unbounded" },
-      );
+          })
+        : false;
+      const toExists = yield* checkpointStore.hasCheckpointRef({
+        cwd: workspaceCwd,
+        checkpointRef: toCheckpointRef,
+      });
 
       if (!fromExists) {
         return yield* new CheckpointUnavailableError({

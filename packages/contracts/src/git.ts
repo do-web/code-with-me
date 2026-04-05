@@ -272,6 +272,34 @@ export const GitPullResult = Schema.Struct({
 });
 export type GitPullResult = typeof GitPullResult.Type;
 
+// File diff / discard RPC types
+
+export const GitGetFileDiffInput = Schema.Struct({
+  cwd: TrimmedNonEmptyStringSchema,
+  filePath: TrimmedNonEmptyStringSchema,
+});
+export type GitGetFileDiffInput = typeof GitGetFileDiffInput.Type;
+
+export const GitGetFileDiffResult = Schema.Struct({
+  filePath: TrimmedNonEmptyStringSchema,
+  diff: Schema.String,
+  isUntracked: Schema.Boolean,
+  isBinary: Schema.Boolean,
+  truncated: Schema.Boolean,
+});
+export type GitGetFileDiffResult = typeof GitGetFileDiffResult.Type;
+
+export const GitDiscardChangesInput = Schema.Struct({
+  cwd: TrimmedNonEmptyStringSchema,
+  filePaths: Schema.Array(TrimmedNonEmptyStringSchema).check(Schema.isMinLength(1)),
+});
+export type GitDiscardChangesInput = typeof GitDiscardChangesInput.Type;
+
+export const GitDiscardChangesResult = Schema.Struct({
+  discardedCount: NonNegativeInt,
+});
+export type GitDiscardChangesResult = typeof GitDiscardChangesResult.Type;
+
 // RPC / domain errors
 export class GitCommandError extends Schema.TaggedErrorClass<GitCommandError>()("GitCommandError", {
   operation: Schema.String,

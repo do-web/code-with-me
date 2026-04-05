@@ -14,6 +14,7 @@ import {
 import { Cache, Cause, Duration, Effect, Equal, Layer, Option, Schema, Stream } from "effect";
 import { makeDrainableWorker } from "@codewithme/shared/DrainableWorker";
 
+import { sanitizeCodexConversationText } from "../../codexInternalDiagnostics.ts";
 import { resolveThreadWorkspaceCwd } from "../../checkpointing/Utils.ts";
 import { GitCore } from "../../git/Services/GitCore.ts";
 import { increment, orchestrationEventsProcessedTotal } from "../../observability/Metrics.ts";
@@ -41,7 +42,7 @@ type ProviderIntentEvent = Extract<
 >;
 
 function toNonEmptyProviderInput(value: string | undefined): string | undefined {
-  const normalized = value?.trim();
+  const normalized = sanitizeCodexConversationText(value)?.trim();
   return normalized && normalized.length > 0 ? normalized : undefined;
 }
 
@@ -534,6 +535,12 @@ const make = Effect.gen(function* () {
       });
       return;
     }
+    const sanitizedMessageText = sanitizeCodexConversationText(message.text) ?? "";
+    const hasSendableMessage =
+      sanitizedMessageText.trim().length > 0 || (message.attachments?.length ?? 0) > 0;
+    if (!hasSendableMessage) {
+      return;
+    }
 
     const isFirstUserMessageTurn =
       thread.messages.filter((entry) => entry.role === "user").length === 1;
@@ -544,7 +551,7 @@ const make = Effect.gen(function* () {
           projects: (yield* orchestrationEngine.getReadModel()).projects,
         }) ?? process.cwd();
       const generationInput = {
-        messageText: message.text,
+        messageText: sanitizedMessageText,
         ...(message.attachments !== undefined ? { attachments: message.attachments } : {}),
         ...(event.payload.titleSeed !== undefined ? { titleSeed: event.payload.titleSeed } : {}),
       };
@@ -567,7 +574,7 @@ const make = Effect.gen(function* () {
 
     yield* sendTurnForThread({
       threadId: event.payload.threadId,
-      messageText: message.text,
+      messageText: sanitizedMessageText,
       ...(message.attachments !== undefined ? { attachments: message.attachments } : {}),
       ...(event.payload.modelSelection !== undefined
         ? { modelSelection: event.payload.modelSelection }

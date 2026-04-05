@@ -10,6 +10,10 @@ import {
   GitCreateBranchInput,
   GitCreateWorktreeInput,
   GitCreateWorktreeResult,
+  GitDiscardChangesInput,
+  GitDiscardChangesResult,
+  GitGetFileDiffInput,
+  GitGetFileDiffResult,
   GitInitInput,
   GitListBranchesInput,
   GitListBranchesResult,
@@ -93,6 +97,8 @@ export const WS_METHODS = {
   gitCreateBranch: "git.createBranch",
   gitCheckout: "git.checkout",
   gitInit: "git.init",
+  gitGetFileDiff: "git.getFileDiff",
+  gitDiscardChanges: "git.discardChanges",
   gitResolvePullRequest: "git.resolvePullRequest",
   gitPreparePullRequestThread: "git.preparePullRequestThread",
 
@@ -244,6 +250,18 @@ export const WsGitInitRpc = Rpc.make(WS_METHODS.gitInit, {
   error: GitCommandError,
 });
 
+export const WsGitGetFileDiffRpc = Rpc.make(WS_METHODS.gitGetFileDiff, {
+  payload: GitGetFileDiffInput,
+  success: GitGetFileDiffResult,
+  error: GitCommandError,
+});
+
+export const WsGitDiscardChangesRpc = Rpc.make(WS_METHODS.gitDiscardChanges, {
+  payload: GitDiscardChangesInput,
+  success: GitDiscardChangesResult,
+  error: GitCommandError,
+});
+
 export const WsTerminalOpenRpc = Rpc.make(WS_METHODS.terminalOpen, {
   payload: TerminalOpenInput,
   success: TerminalSessionSnapshot,
@@ -371,6 +389,8 @@ export const WsRpcGroup = RpcGroup.make(
   WsGitCreateBranchRpc,
   WsGitCheckoutRpc,
   WsGitInitRpc,
+  WsGitGetFileDiffRpc,
+  WsGitDiscardChangesRpc,
   WsTerminalOpenRpc,
   WsTerminalWriteRpc,
   WsTerminalResizeRpc,

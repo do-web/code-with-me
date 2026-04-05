@@ -5,6 +5,7 @@ import type {
 } from "@codewithme/contracts";
 import { Effect } from "effect";
 
+import { sanitizeCodexConversationText } from "../codexInternalDiagnostics.ts";
 import { OrchestrationCommandInvariantError } from "./Errors.ts";
 import {
   requireProject,
@@ -340,6 +341,12 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           detail: `Proposed plan '${sourceProposedPlan?.planId}' belongs to thread '${sourceThread.id}' in a different project.`,
         });
       }
+      const sanitizedMessageText = sanitizeCodexConversationText(command.message.text) ?? "";
+      const hasSendableMessage =
+        sanitizedMessageText.trim().length > 0 || command.message.attachments.length > 0;
+      if (!hasSendableMessage) {
+        return [];
+      }
       const userMessageEvent: Omit<OrchestrationEvent, "sequence"> = {
         ...withEventBase({
           aggregateKind: "thread",
@@ -352,7 +359,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           threadId: command.threadId,
           messageId: command.message.messageId,
           role: "user",
-          text: command.message.text,
+          text: sanitizedMessageText,
           attachments: command.message.attachments,
           turnId: null,
           streaming: false,

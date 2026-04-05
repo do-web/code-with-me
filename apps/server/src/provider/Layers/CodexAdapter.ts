@@ -39,6 +39,10 @@ import {
 } from "../../codexAppServerManager.ts";
 import { resolveAttachmentPath } from "../../attachmentStore.ts";
 import { ServerConfig } from "../../config.ts";
+import {
+  isCodexInternalDiagnosticText,
+  sanitizeCodexConversationText,
+} from "../../codexInternalDiagnostics.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { type EventNdjsonLogger, makeEventNdjsonLogger } from "./EventNdjsonLogger.ts";
 
@@ -263,9 +267,29 @@ function itemDetail(
     if (!candidate) continue;
     const trimmed = candidate.trim();
     if (trimmed.length === 0) continue;
+    if (isCodexInternalDiagnosticText(trimmed)) continue;
     return trimmed;
   }
   return undefined;
+}
+
+function isInternalCodexDiagnosticItem(
+  item: Record<string, unknown>,
+  payload: Record<string, unknown>,
+): boolean {
+  const nestedResult = asObject(item.result);
+  return [
+    asString(item.command),
+    asString(item.title),
+    asString(item.summary),
+    asString(item.text),
+    asString(item.path),
+    asString(item.prompt),
+    asString(nestedResult?.command),
+    asString(payload.command),
+    asString(payload.message),
+    asString(payload.prompt),
+  ].some((candidate) => isCodexInternalDiagnosticText(candidate));
 }
 
 function toRequestTypeFromMethod(method: string): CanonicalRequestType {
@@ -551,6 +575,9 @@ function mapItemLifecycle(
   }
 
   const itemType = toCanonicalItemType(source.type ?? source.kind);
+  if (isInternalCodexDiagnosticItem(source, payload ?? {})) {
+    return undefined;
+  }
   if (itemType === "unknown" && lifecycle !== "item.updated") {
     return undefined;
   }
@@ -1470,12 +1497,13 @@ const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
       (attachment) => resolveAttachment(input, attachment),
       { concurrency: 1 },
     );
+    const sanitizedInput = sanitizeCodexConversationText(input.input)?.trim();
 
     return yield* Effect.tryPromise({
       try: () => {
         const managerInput = {
           threadId: input.threadId,
-          ...(input.input !== undefined ? { input: input.input } : {}),
+          ...(sanitizedInput ? { input: sanitizedInput } : {}),
           ...(input.modelSelection?.provider === "codex"
             ? { model: input.modelSelection.model }
             : {}),

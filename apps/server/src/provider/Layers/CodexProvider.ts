@@ -503,6 +503,7 @@ export const checkCodexProviderStatus = Effect.fn("checkCodexProviderStatus")(fu
   const parsed = parseAuthStatusFromOutput(authProbe.success.value);
   const authType = codexAuthSubType(account);
   const authLabel = codexAuthSubLabel(account);
+  const authEmail = account?.email ?? undefined;
   return buildServerProvider({
     provider: PROVIDER,
     enabled: codexSettings.enabled,
@@ -516,6 +517,7 @@ export const checkCodexProviderStatus = Effect.fn("checkCodexProviderStatus")(fu
         ...parsed.auth,
         ...(authType ? { type: authType } : {}),
         ...(authLabel ? { label: authLabel } : {}),
+        ...(authEmail ? { email: authEmail } : {}),
       },
       ...(parsed.message ? { message: parsed.message } : {}),
     },

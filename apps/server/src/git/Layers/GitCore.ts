@@ -2102,6 +2102,112 @@ export const makeGitCore = Effect.fn("makeGitCore")(function* (options?: {
       ),
     );
 
+  const FILE_DIFF_MAX_BYTES = 512_000;
+
+  const getFileDiff: GitCoreShape["getFileDiff"] = (cwd, filePath) =>
+    Effect.gen(function* () {
+      // Check if the file is untracked via porcelain status
+      const statusResult = yield* executeGit(
+        "GitCore.getFileDiff.status",
+        cwd,
+        ["status", "--porcelain=2", "--", filePath],
+        { allowNonZeroExit: true },
+      );
+      const isUntracked = statusResult.stdout.split(/\r?\n/g).some((line) => line.startsWith("? "));
+
+      let diffOutput: string;
+      let truncated = false;
+
+      if (isUntracked) {
+        // For untracked files use --no-index to produce a diff against /dev/null
+        const result = yield* executeGit(
+          "GitCore.getFileDiff.untrackedDiff",
+          cwd,
+          ["diff", "--no-index", "--", "/dev/null", filePath],
+          {
+            allowNonZeroExit: true,
+            maxOutputBytes: FILE_DIFF_MAX_BYTES,
+            truncateOutputAtMaxBytes: true,
+          },
+        );
+        diffOutput = result.stdout;
+        truncated = result.stdoutTruncated;
+      } else {
+        // For tracked files diff against HEAD (covers staged + unstaged)
+        const result = yield* executeGit(
+          "GitCore.getFileDiff.trackedDiff",
+          cwd,
+          ["diff", "HEAD", "--", filePath],
+          {
+            allowNonZeroExit: true,
+            maxOutputBytes: FILE_DIFF_MAX_BYTES,
+            truncateOutputAtMaxBytes: true,
+          },
+        );
+        diffOutput = result.stdout;
+        truncated = result.stdoutTruncated;
+      }
+
+      const isBinary = diffOutput.includes("Binary files") && diffOutput.includes("differ");
+
+      return {
+        filePath,
+        diff: diffOutput,
+        isUntracked,
+        isBinary,
+        truncated,
+      };
+    });
+
+  const discardChanges: GitCoreShape["discardChanges"] = (cwd, filePaths) =>
+    Effect.gen(function* () {
+      // Determine tracked vs untracked for each path
+      const statusResult = yield* executeGit(
+        "GitCore.discardChanges.status",
+        cwd,
+        ["status", "--porcelain=2", "--", ...filePaths],
+        { allowNonZeroExit: true },
+      );
+
+      const untrackedPaths = new Set<string>();
+      for (const line of statusResult.stdout.split(/\r?\n/g)) {
+        if (line.startsWith("? ")) {
+          untrackedPaths.add(line.slice(2).trim());
+        }
+      }
+
+      const trackedPaths = filePaths.filter((p) => !untrackedPaths.has(p));
+      const untrackedArray = filePaths.filter((p) => untrackedPaths.has(p));
+
+      // Revert tracked files: reset staging then checkout from HEAD
+      if (trackedPaths.length > 0) {
+        yield* runGit(
+          "GitCore.discardChanges.reset",
+          cwd,
+          ["reset", "HEAD", "--", ...trackedPaths],
+          true,
+        );
+        yield* runGit(
+          "GitCore.discardChanges.checkout",
+          cwd,
+          ["checkout", "HEAD", "--", ...trackedPaths],
+          false,
+        );
+      }
+
+      // Remove untracked files
+      if (untrackedArray.length > 0) {
+        yield* runGit(
+          "GitCore.discardChanges.clean",
+          cwd,
+          ["clean", "-f", "--", ...untrackedArray],
+          false,
+        );
+      }
+
+      return { discardedCount: filePaths.length };
+    });
+
   return {
     execute,
     status,
@@ -2127,6 +2233,8 @@ export const makeGitCore = Effect.fn("makeGitCore")(function* (options?: {
     checkoutBranch,
     initRepo,
     listLocalBranchNames,
+    getFileDiff,
+    discardChanges,
   } satisfies GitCoreShape;
 });
 

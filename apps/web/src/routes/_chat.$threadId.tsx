@@ -22,10 +22,14 @@ import { Sheet, SheetPopup } from "../components/ui/sheet";
 import { Sidebar, SidebarInset, SidebarProvider, SidebarRail } from "~/components/ui/sidebar";
 
 const DiffPanel = lazy(() => import("../components/DiffPanel"));
+const UncommittedChangesPanel = lazy(() => import("../components/UncommittedChangesPanel"));
 const DIFF_INLINE_LAYOUT_MEDIA_QUERY = "(max-width: 1180px)";
 const DIFF_INLINE_SIDEBAR_WIDTH_STORAGE_KEY = "chat_diff_sidebar_width";
 const DIFF_INLINE_DEFAULT_WIDTH = "clamp(28rem,48vw,44rem)";
 const DIFF_INLINE_SIDEBAR_MIN_WIDTH = 26 * 16;
+const CHANGES_INLINE_SIDEBAR_WIDTH_STORAGE_KEY = "chat_changes_sidebar_width";
+const CHANGES_INLINE_DEFAULT_WIDTH = "clamp(22rem,36vw,34rem)";
+const CHANGES_INLINE_SIDEBAR_MIN_WIDTH = 20 * 16;
 const COMPOSER_COMPACT_MIN_LEFT_CONTROLS_WIDTH_PX = 208;
 
 const DiffPanelSheet = (props: {
@@ -51,6 +55,88 @@ const DiffPanelSheet = (props: {
         {props.children}
       </SheetPopup>
     </Sheet>
+  );
+};
+
+const ChangesPanelSheet = (props: {
+  children: ReactNode;
+  changesOpen: boolean;
+  onCloseChanges: () => void;
+}) => {
+  return (
+    <Sheet
+      open={props.changesOpen}
+      onOpenChange={(open) => {
+        if (!open) {
+          props.onCloseChanges();
+        }
+      }}
+    >
+      <SheetPopup
+        side="right"
+        showCloseButton={false}
+        keepMounted
+        className="w-[min(88vw,640px)] max-w-[640px] p-0"
+      >
+        {props.children}
+      </SheetPopup>
+    </Sheet>
+  );
+};
+
+const LazyUncommittedChangesPanel = (props: { mode: DiffPanelMode }) => {
+  return (
+    <Suspense
+      fallback={
+        <DiffPanelShell mode={props.mode} header={<DiffPanelHeaderSkeleton />}>
+          <DiffPanelLoadingState label="Loading changes panel..." />
+        </DiffPanelShell>
+      }
+    >
+      <UncommittedChangesPanel mode={props.mode} />
+    </Suspense>
+  );
+};
+
+const ChangesPanelInlineSidebar = (props: {
+  changesOpen: boolean;
+  onCloseChanges: () => void;
+  onOpenChanges: () => void;
+  renderContent: boolean;
+}) => {
+  const { changesOpen, onCloseChanges, onOpenChanges, renderContent } = props;
+  const onOpenChange = useCallback(
+    (open: boolean) => {
+      if (open) {
+        onOpenChanges();
+        return;
+      }
+      onCloseChanges();
+    },
+    [onCloseChanges, onOpenChanges],
+  );
+
+  return (
+    <SidebarProvider
+      defaultOpen={false}
+      open={changesOpen}
+      onOpenChange={onOpenChange}
+      className="w-auto min-h-0 flex-none bg-transparent"
+      style={{ "--sidebar-width": CHANGES_INLINE_DEFAULT_WIDTH } as React.CSSProperties}
+    >
+      <Sidebar
+        side="right"
+        collapsible="offcanvas"
+        className="border-l border-border bg-card text-foreground"
+        resizable={{
+          minWidth: CHANGES_INLINE_SIDEBAR_MIN_WIDTH,
+          storageKey: CHANGES_INLINE_SIDEBAR_WIDTH_STORAGE_KEY,
+        }}
+      >
+        {renderContent ? <LazyUncommittedChangesPanel mode="sidebar" /> : null}
+        <SidebarRail />
+      </Sidebar>
+    </SidebarProvider>
   );
 };
 
@@ -173,10 +259,12 @@ function ChatThreadRouteView() {
   );
   const routeThreadExists = threadExists || draftThreadExists;
   const diffOpen = search.diff === "1";
+  const changesOpen = search.changes === "1";
   const shouldUseDiffSheet = useMediaQuery(DIFF_INLINE_LAYOUT_MEDIA_QUERY);
   // TanStack Router keeps active route components mounted across param-only navigations
   // unless remountDeps are configured, so this stays warm across thread switches.
   const [hasOpenedDiff, setHasOpenedDiff] = useState(diffOpen);
+  const [hasOpenedChanges, setHasOpenedChanges] = useState(changesOpen);
   const closeDiff = useCallback(() => {
     void navigate({
       to: "/$threadId",
@@ -194,12 +282,35 @@ function ChatThreadRouteView() {
       },
     });
   }, [navigate, threadId]);
+  const closeChanges = useCallback(() => {
+    void navigate({
+      to: "/$threadId",
+      params: { threadId },
+      search: { changes: undefined },
+    });
+  }, [navigate, threadId]);
+  const openChanges = useCallback(() => {
+    void navigate({
+      to: "/$threadId",
+      params: { threadId },
+      search: (previous) => {
+        const rest = stripDiffSearchParams(previous);
+        return { ...rest, changes: "1" };
+      },
+    });
+  }, [navigate, threadId]);
 
   useEffect(() => {
     if (diffOpen) {
       setHasOpenedDiff(true);
     }
   }, [diffOpen]);
+
+  useEffect(() => {
+    if (changesOpen) {
+      setHasOpenedChanges(true);
+    }
+  }, [changesOpen]);
 
   useEffect(() => {
     if (!bootstrapComplete) {
@@ -217,6 +328,7 @@ function ChatThreadRouteView() {
   }
 
   const shouldRenderDiffContent = diffOpen || hasOpenedDiff;
+  const shouldRenderChangesContent = changesOpen || hasOpenedChanges;
 
   if (!shouldUseDiffSheet) {
     return (
@@ -224,6 +336,12 @@ function ChatThreadRouteView() {
         <SidebarInset className="h-dvh  min-h-0 overflow-hidden overscroll-y-none bg-background text-foreground">
           <ChatView threadId={threadId} />
         </SidebarInset>
+        <ChangesPanelInlineSidebar
+          changesOpen={changesOpen}
+          onCloseChanges={closeChanges}
+          onOpenChanges={openChanges}
+          renderContent={shouldRenderChangesContent}
+        />
         <DiffPanelInlineSidebar
           diffOpen={diffOpen}
           onCloseDiff={closeDiff}
@@ -239,6 +357,9 @@ function ChatThreadRouteView() {
       <SidebarInset className="h-dvh min-h-0 overflow-hidden overscroll-y-none bg-background text-foreground">
         <ChatView threadId={threadId} />
       </SidebarInset>
+      <ChangesPanelSheet changesOpen={changesOpen} onCloseChanges={closeChanges}>
+        {shouldRenderChangesContent ? <LazyUncommittedChangesPanel mode="sheet" /> : null}
+      </ChangesPanelSheet>
       <DiffPanelSheet diffOpen={diffOpen} onCloseDiff={closeDiff}>
         {shouldRenderDiffContent ? <LazyDiffPanel mode="sheet" /> : null}
       </DiffPanelSheet>
@@ -249,7 +370,7 @@ function ChatThreadRouteView() {
 export const Route = createFileRoute("/_chat/$threadId")({
   validateSearch: (search) => parseDiffRouteSearch(search),
   search: {
-    middlewares: [retainSearchParams<DiffRouteSearch>(["diff"])],
+    middlewares: [retainSearchParams<DiffRouteSearch>(["diff", "changes"])],
   },
   component: ChatThreadRouteView,
 });

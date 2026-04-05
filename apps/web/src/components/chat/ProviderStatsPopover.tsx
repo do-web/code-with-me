@@ -45,7 +45,7 @@ function formatCost(usd: number): string {
 
 interface ProviderStatsPopoverProps {
   readonly accountStats: ProviderAccountStatsSnapshot | null;
-  readonly contextWindow: ContextWindowSnapshot | null;
+  readonly contextWindow?: ContextWindowSnapshot | null;
   readonly serverProvider: ServerProvider | null;
 }
 

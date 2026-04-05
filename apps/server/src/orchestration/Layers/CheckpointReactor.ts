@@ -1,4 +1,5 @@
 import {
+  CheckpointRef,
   CommandId,
   EventId,
   MessageId,
@@ -13,6 +14,7 @@ import { makeDrainableWorker } from "@codewithme/shared/DrainableWorker";
 
 import { parseTurnDiffFilesFromUnifiedDiff } from "../../checkpointing/Diffs.ts";
 import {
+  checkpointRefCandidatesForThreadTurn,
   checkpointRefForThreadTurn,
   resolveThreadWorkspaceCwd,
 } from "../../checkpointing/Utils.ts";
@@ -205,13 +207,21 @@ const make = Effect.gen(function* () {
     readonly createdAt: string;
   }) {
     const fromTurnCount = Math.max(0, input.turnCount - 1);
-    const fromCheckpointRef = checkpointRefForThreadTurn(input.threadId, fromTurnCount);
     const targetCheckpointRef = checkpointRefForThreadTurn(input.threadId, input.turnCount);
 
-    const fromCheckpointExists = yield* checkpointStore.hasCheckpointRef({
-      cwd: input.cwd,
-      checkpointRef: fromCheckpointRef,
-    });
+    // Resolve pre-turn baseline ref (try current + legacy prefixes).
+    let fromCheckpointRef = checkpointRefForThreadTurn(input.threadId, fromTurnCount);
+    let fromCheckpointExists = false;
+    for (const candidate of checkpointRefCandidatesForThreadTurn(input.threadId, fromTurnCount)) {
+      fromCheckpointExists = yield* checkpointStore.hasCheckpointRef({
+        cwd: input.cwd,
+        checkpointRef: candidate,
+      });
+      if (fromCheckpointExists) {
+        fromCheckpointRef = candidate;
+        break;
+      }
+    }
     if (!fromCheckpointExists) {
       yield* Effect.logWarning("checkpoint capture missing pre-turn baseline", {
         threadId: input.threadId,
@@ -475,15 +485,20 @@ const make = Effect.gen(function* () {
         (maxTurnCount, checkpoint) => Math.max(maxTurnCount, checkpoint.checkpointTurnCount),
         0,
       );
-      const baselineCheckpointRef = checkpointRefForThreadTurn(thread.id, currentTurnCount);
-      const baselineExists = yield* checkpointStore.hasCheckpointRef({
-        cwd: checkpointCwd,
-        checkpointRef: baselineCheckpointRef,
-      });
+      // Check current + legacy prefixes for existing baseline.
+      let baselineExists = false;
+      for (const candidate of checkpointRefCandidatesForThreadTurn(thread.id, currentTurnCount)) {
+        baselineExists = yield* checkpointStore.hasCheckpointRef({
+          cwd: checkpointCwd,
+          checkpointRef: candidate,
+        });
+        if (baselineExists) break;
+      }
       if (baselineExists) {
         return;
       }
 
+      const baselineCheckpointRef = checkpointRefForThreadTurn(thread.id, currentTurnCount);
       yield* checkpointStore.captureCheckpoint({
         cwd: checkpointCwd,
         checkpointRef: baselineCheckpointRef,
@@ -537,15 +552,20 @@ const make = Effect.gen(function* () {
       (maxTurnCount, checkpoint) => Math.max(maxTurnCount, checkpoint.checkpointTurnCount),
       0,
     );
-    const baselineCheckpointRef = checkpointRefForThreadTurn(threadId, currentTurnCount);
-    const baselineExists = yield* checkpointStore.hasCheckpointRef({
-      cwd: checkpointCwd,
-      checkpointRef: baselineCheckpointRef,
-    });
+    // Check current + legacy prefixes for existing baseline.
+    let baselineExists = false;
+    for (const candidate of checkpointRefCandidatesForThreadTurn(threadId, currentTurnCount)) {
+      baselineExists = yield* checkpointStore.hasCheckpointRef({
+        cwd: checkpointCwd,
+        checkpointRef: candidate,
+      });
+      if (baselineExists) break;
+    }
     if (baselineExists) {
       return;
     }
 
+    const baselineCheckpointRef = checkpointRefForThreadTurn(threadId, currentTurnCount);
     yield* checkpointStore.captureCheckpoint({
       cwd: checkpointCwd,
       checkpointRef: baselineCheckpointRef,
@@ -611,12 +631,23 @@ const make = Effect.gen(function* () {
       return;
     }
 
-    const targetCheckpointRef =
-      event.payload.turnCount === 0
-        ? checkpointRefForThreadTurn(event.payload.threadId, 0)
-        : thread.checkpoints.find(
-            (checkpoint) => checkpoint.checkpointTurnCount === event.payload.turnCount,
-          )?.checkpointRef;
+    let targetCheckpointRef: CheckpointRef | undefined;
+    if (event.payload.turnCount === 0) {
+      // Try current + legacy prefixes for turn 0.
+      for (const candidate of checkpointRefCandidatesForThreadTurn(event.payload.threadId, 0)) {
+        const exists = yield* checkpointStore
+          .hasCheckpointRef({ cwd: sessionRuntime.value.cwd, checkpointRef: candidate })
+          .pipe(Effect.catch(() => Effect.succeed(false)));
+        if (exists) {
+          targetCheckpointRef = candidate;
+          break;
+        }
+      }
+    } else {
+      targetCheckpointRef = thread.checkpoints.find(
+        (checkpoint) => checkpoint.checkpointTurnCount === event.payload.turnCount,
+      )?.checkpointRef;
+    }
 
     if (!targetCheckpointRef) {
       yield* appendRevertFailureActivity({

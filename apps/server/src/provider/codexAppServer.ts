@@ -40,11 +40,21 @@ export function killCodexChildProcess(child: ChildProcessWithoutNullStreams): vo
   child.kill();
 }
 
-export async function probeCodexAccount(input: {
+interface CodexAppServerProbeInput {
   readonly binaryPath: string;
   readonly homePath?: string;
   readonly signal?: AbortSignal;
-}): Promise<CodexAccountSnapshot> {
+}
+
+async function probeCodexAppServerRequest<T>(
+  input: CodexAppServerProbeInput,
+  request: {
+    readonly method: string;
+    readonly params: unknown;
+    readonly errorLabel: string;
+    readonly parseResult: (result: unknown) => T;
+  },
+): Promise<T> {
   return await new Promise((resolve, reject) => {
     const child = spawn(input.binaryPath, ["app-server"], {
       env: {
@@ -103,7 +113,9 @@ export async function probeCodexAccount(input: {
       try {
         parsed = JSON.parse(line);
       } catch {
-        fail(new Error("Received invalid JSON from codex app-server during account probe."));
+        fail(
+          new Error(`Received invalid JSON from codex app-server during ${request.errorLabel}.`),
+        );
         return;
       }
 
@@ -120,18 +132,18 @@ export async function probeCodexAccount(input: {
         }
 
         writeMessage({ method: "initialized" });
-        writeMessage({ id: 2, method: "account/read", params: {} });
+        writeMessage({ id: 2, method: request.method, params: request.params });
         return;
       }
 
       if (response.id === 2) {
         const errorMessage = readErrorMessage(response);
         if (errorMessage) {
-          fail(new Error(`account/read failed: ${errorMessage}`));
+          fail(new Error(`${request.errorLabel} failed: ${errorMessage}`));
           return;
         }
 
-        finish(() => resolve(readCodexAccountSnapshot(response.result)));
+        finish(() => resolve(request.parseResult(response.result)));
       }
     });
 
@@ -150,5 +162,25 @@ export async function probeCodexAccount(input: {
       method: "initialize",
       params: buildCodexInitializeParams(),
     });
+  });
+}
+
+export async function probeCodexAccount(
+  input: CodexAppServerProbeInput,
+): Promise<CodexAccountSnapshot> {
+  return await probeCodexAppServerRequest(input, {
+    method: "account/read",
+    params: {},
+    errorLabel: "account/read",
+    parseResult: readCodexAccountSnapshot,
+  });
+}
+
+export async function probeCodexRateLimits(input: CodexAppServerProbeInput): Promise<unknown> {
+  return await probeCodexAppServerRequest(input, {
+    method: "account/rateLimits/read",
+    params: null,
+    errorLabel: "account/rateLimits/read",
+    parseResult: (result) => result,
   });
 }

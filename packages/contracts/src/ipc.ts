@@ -1,6 +1,10 @@
 import type {
   GitCheckoutInput,
   GitCreateBranchInput,
+  GitDiscardChangesInput,
+  GitDiscardChangesResult,
+  GitGetFileDiffInput,
+  GitGetFileDiffResult,
   GitPreparePullRequestThreadInput,
   GitPreparePullRequestThreadResult,
   GitPullRequestRefInput,
@@ -160,6 +164,9 @@ export interface NativeApi {
     // Stacked action API
     pull: (input: GitPullInput) => Promise<GitPullResult>;
     status: (input: GitStatusInput) => Promise<GitStatusResult>;
+    // File diff / discard API
+    getFileDiff: (input: GitGetFileDiffInput) => Promise<GitGetFileDiffResult>;
+    discardChanges: (input: GitDiscardChangesInput) => Promise<GitDiscardChangesResult>;
   };
   contextMenu: {
     show: <T extends string>(

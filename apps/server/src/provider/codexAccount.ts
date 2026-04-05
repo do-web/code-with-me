@@ -14,6 +14,7 @@ export type CodexPlanType =
 export interface CodexAccountSnapshot {
   readonly type: "apiKey" | "chatgpt" | "unknown";
   readonly planType: CodexPlanType | null;
+  readonly email: string | null;
   readonly sparkEnabled: boolean;
 }
 
@@ -41,6 +42,7 @@ export function readCodexAccountSnapshot(response: unknown): CodexAccountSnapsho
     return {
       type: "apiKey",
       planType: null,
+      email: null,
       sparkEnabled: false,
     };
   }
@@ -50,6 +52,7 @@ export function readCodexAccountSnapshot(response: unknown): CodexAccountSnapsho
     return {
       type: "chatgpt",
       planType,
+      email: asString(account?.email) ?? null,
       sparkEnabled: CODEX_SPARK_ENABLED_PLAN_TYPES.has(planType),
     };
   }
@@ -57,6 +60,7 @@ export function readCodexAccountSnapshot(response: unknown): CodexAccountSnapsho
   return {
     type: "unknown",
     planType: null,
+    email: null,
     sparkEnabled: false,
   };
 }

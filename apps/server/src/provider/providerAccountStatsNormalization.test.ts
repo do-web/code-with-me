@@ -103,4 +103,63 @@ describe("normalizeCodexRateLimits", () => {
     const result = normalizeCodexRateLimits({ unknown: true });
     assert.equal(result.length, 0);
   });
+
+  it("normalizes Codex app-server primary and secondary windows", () => {
+    const raw = {
+      rateLimits: {
+        limitId: "codex",
+        primary: {
+          usedPercent: 20,
+          windowDurationMins: 300,
+          resetsAt: Math.floor(Date.now() / 1000) + 3600,
+        },
+        secondary: {
+          usedPercent: 9,
+          windowDurationMins: 10080,
+          resetsAt: Math.floor(Date.now() / 1000) + 3600 * 24,
+        },
+      },
+    };
+    const result = normalizeCodexRateLimits(raw);
+    assert.equal(result.length, 2);
+    assert.equal(result[0]!.name, "5h limit");
+    assert.equal(result[0]!.percentUsed, 20);
+    assert.ok(result[0]!.resetsInMs! > 0);
+    assert.equal(result[1]!.name, "Weekly limit");
+    assert.equal(result[1]!.percentUsed, 9);
+    assert.ok(result[1]!.resetsInMs! > 0);
+  });
+
+  it("normalizes array-style Codex rate limits with reset metadata", () => {
+    const raw = {
+      rateLimits: [
+        {
+          name: "Session",
+          utilization: 0.42,
+          reservePercent: 8,
+          resetsAt: Math.floor(Date.now() / 1000) + 3600,
+        },
+      ],
+    };
+    const result = normalizeCodexRateLimits(raw);
+    assert.equal(result.length, 1);
+    assert.equal(result[0]!.name, "Session");
+    assert.equal(result[0]!.percentUsed, 42);
+    assert.equal(result[0]!.percentReserve, 8);
+    assert.ok(result[0]!.resetsInMs! > 0);
+    assert.ok(result[0]!.resetsAtIso);
+  });
+
+  it("normalizes direct Codex rate limit payloads", () => {
+    const raw = {
+      type: "Weekly",
+      percentUsed: 67,
+      resetAtMs: Date.now() + 7200_000,
+    };
+    const result = normalizeCodexRateLimits(raw);
+    assert.equal(result.length, 1);
+    assert.equal(result[0]!.name, "Weekly");
+    assert.equal(result[0]!.percentUsed, 67);
+    assert.ok(result[0]!.resetsInMs! > 0);
+  });
 });

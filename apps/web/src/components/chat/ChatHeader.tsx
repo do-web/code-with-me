@@ -6,6 +6,7 @@ import {
 } from "@codewithme/contracts";
 import { memo } from "react";
 import GitActionsControl from "../GitActionsControl";
+import { UncommittedChangesButton } from "../UncommittedChangesButton";
 import { DiffIcon, TerminalSquareIcon } from "lucide-react";
 import { Badge } from "../ui/badge";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
@@ -30,12 +31,14 @@ interface ChatHeaderProps {
   diffToggleShortcutLabel: string | null;
   gitCwd: string | null;
   diffOpen: boolean;
+  changesOpen: boolean;
   onRunProjectScript: (script: ProjectScript) => void;
   onAddProjectScript: (input: NewProjectScriptInput) => Promise<void>;
   onUpdateProjectScript: (scriptId: string, input: NewProjectScriptInput) => Promise<void>;
   onDeleteProjectScript: (scriptId: string) => Promise<void>;
   onToggleTerminal: () => void;
   onToggleDiff: () => void;
+  onToggleChanges: () => void;
 }
 
 export const ChatHeader = memo(function ChatHeader({
@@ -54,12 +57,14 @@ export const ChatHeader = memo(function ChatHeader({
   diffToggleShortcutLabel,
   gitCwd,
   diffOpen,
+  changesOpen,
   onRunProjectScript,
   onAddProjectScript,
   onUpdateProjectScript,
   onDeleteProjectScript,
   onToggleTerminal,
   onToggleDiff,
+  onToggleChanges,
 }: ChatHeaderProps) {
   return (
     <div className="@container/header-actions flex min-w-0 flex-1 items-center gap-2">
@@ -150,6 +155,13 @@ export const ChatHeader = memo(function ChatHeader({
                 : "Toggle diff panel"}
           </TooltipPopup>
         </Tooltip>
+        {activeProjectName && isGitRepo && (
+          <UncommittedChangesButton
+            gitCwd={gitCwd}
+            changesOpen={changesOpen}
+            onToggleChanges={onToggleChanges}
+          />
+        )}
       </div>
     </div>
   );

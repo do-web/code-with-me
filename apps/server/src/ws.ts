@@ -650,6 +650,16 @@ const WsRpcLayer = WsRpcGroup.toLayer(
         }),
       [WS_METHODS.gitInit]: (input) =>
         observeRpcEffect(WS_METHODS.gitInit, git.initRepo(input), { "rpc.aggregate": "git" }),
+      [WS_METHODS.gitGetFileDiff]: (input) =>
+        observeRpcEffect(WS_METHODS.gitGetFileDiff, git.getFileDiff(input.cwd, input.filePath), {
+          "rpc.aggregate": "git",
+        }),
+      [WS_METHODS.gitDiscardChanges]: (input) =>
+        observeRpcEffect(
+          WS_METHODS.gitDiscardChanges,
+          git.discardChanges(input.cwd, input.filePaths),
+          { "rpc.aggregate": "git" },
+        ),
       [WS_METHODS.terminalOpen]: (input) =>
         observeRpcEffect(WS_METHODS.terminalOpen, terminalManager.open(input), {
           "rpc.aggregate": "terminal",

@@ -30,6 +30,8 @@ import { ServerSettingsService } from "./serverSettings";
 import { AnalyticsService } from "./telemetry/Services/AnalyticsService";
 import { ProviderAccountStatsService } from "./provider/Services/ProviderAccountStats";
 import { probeClaudeUsage } from "./provider/claudeUsageProbe";
+import { probeCodexAccount, probeCodexRateLimits } from "./provider/codexAppServer";
+import { normalizeCodexRateLimits } from "./provider/providerAccountStatsNormalization";
 
 const isWildcardHost = (host: string | undefined): boolean =>
   host === "0.0.0.0" || host === "::" || host === "[::]";
@@ -149,6 +151,68 @@ export const launchStartupHeartbeat = recordStartupHeartbeat.pipe(
   Effect.forkScoped,
   Effect.asVoid,
 );
+
+const publishClaudeUsageStats = Effect.gen(function* () {
+  const serverSettings = yield* ServerSettingsService;
+  const providerAccountStats = yield* ProviderAccountStatsService;
+  const settings = yield* serverSettings.getSettings;
+  if (!settings.providers.claudeAgent.enabled) return;
+
+  const binary = settings.providers.claudeAgent.binaryPath || "claude";
+  yield* Effect.logInfo("[usage-probe] Claude probe starting");
+  const quotas = yield* probeClaudeUsage(binary);
+  yield* Effect.logInfo("[usage-probe] Claude probe result", {
+    count: quotas.length,
+    quotas: JSON.stringify(quotas),
+  });
+  if (quotas.length > 0) {
+    yield* providerAccountStats.publish({
+      provider: "claudeAgent",
+      quotas,
+      updatedAt: new Date().toISOString(),
+    });
+    yield* Effect.logInfo("[usage-probe] Claude stats published");
+  }
+});
+
+const publishCodexUsageStats = Effect.gen(function* () {
+  const serverSettings = yield* ServerSettingsService;
+  const providerAccountStats = yield* ProviderAccountStatsService;
+  const settings = yield* serverSettings.getSettings;
+  if (!settings.providers.codex.enabled) return;
+
+  const binary = settings.providers.codex.binaryPath || "codex";
+  yield* Effect.logInfo("[usage-probe] Codex probe starting");
+  const account = yield* Effect.tryPromise((signal) =>
+    probeCodexAccount({
+      binaryPath: binary,
+      homePath: settings.providers.codex.homePath,
+      signal,
+    }),
+  );
+  const rawRateLimits = yield* Effect.tryPromise((signal) =>
+    probeCodexRateLimits({
+      binaryPath: binary,
+      homePath: settings.providers.codex.homePath,
+      signal,
+    }),
+  );
+  const quotas = normalizeCodexRateLimits(rawRateLimits);
+  yield* Effect.logInfo("[usage-probe] Codex probe result", {
+    count: quotas.length,
+    quotas: JSON.stringify(quotas),
+  });
+  if (quotas.length > 0) {
+    yield* providerAccountStats.publish({
+      provider: "codex",
+      ...(account.planType ? { plan: account.planType } : {}),
+      ...(account.email ? { email: account.email } : {}),
+      quotas,
+      updatedAt: new Date().toISOString(),
+    });
+    yield* Effect.logInfo("[usage-probe] Codex stats published");
+  }
+});
 
 const autoBootstrapWelcome = Effect.gen(function* () {
   const serverConfig = yield* ServerConfig;
@@ -325,28 +389,26 @@ const makeServerRuntimeStartup = Effect.gen(function* () {
       }),
     );
 
-    // Initial Claude usage probe — runs in background, non-blocking
+    // Initial provider usage probes — run in background, non-blocking
     yield* Effect.forkScoped(
-      Effect.gen(function* () {
-        const settings = yield* serverSettings.getSettings;
-        if (!settings.providers.claudeAgent.enabled) return;
-        const binary = settings.providers.claudeAgent.binaryPath || "claude";
-        yield* Effect.logInfo("[usage-probe] initial probe starting");
-        const quotas = yield* probeClaudeUsage(binary);
-        yield* Effect.logInfo("[usage-probe] initial probe result", {
-          count: quotas.length,
-          quotas: JSON.stringify(quotas),
-        });
-        if (quotas.length > 0) {
-          const accountStats = yield* ProviderAccountStatsService;
-          yield* accountStats.publish({
-            provider: "claudeAgent",
-            quotas,
-            updatedAt: new Date().toISOString(),
-          });
-          yield* Effect.logInfo("[usage-probe] initial stats published");
-        }
-      }).pipe(Effect.ignoreCause({ log: true })),
+      Effect.all([
+        publishClaudeUsageStats.pipe(Effect.ignoreCause({ log: true })),
+        publishCodexUsageStats.pipe(Effect.ignoreCause({ log: true })),
+      ]).pipe(Effect.asVoid),
+    );
+
+    // Periodic provider usage refresh — keeps cloud usage and account identity up to date.
+    yield* Effect.forkScoped(
+      Effect.sleep("60 seconds").pipe(
+        Effect.andThen(
+          Effect.all([
+            publishClaudeUsageStats.pipe(Effect.ignoreCause({ log: true })),
+            publishCodexUsageStats.pipe(Effect.ignoreCause({ log: true })),
+          ]),
+        ),
+        Effect.forever,
+        Effect.ignoreCause({ log: true }),
+      ),
     );
   }).pipe(
     Effect.annotateSpans({

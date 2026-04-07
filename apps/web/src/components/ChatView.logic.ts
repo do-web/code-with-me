@@ -11,7 +11,7 @@ import {
 } from "../lib/terminalContext";
 
 export const LAST_INVOKED_SCRIPT_BY_PROJECT_KEY = "codewithme:last-invoked-script-by-project";
-export const MAX_HIDDEN_MOUNTED_TERMINAL_THREADS = 10;
+export const MAX_HIDDEN_MOUNTED_TERMINAL_PROJECTS = 10;
 const WORKTREE_BRANCH_PREFIX = "codewithme";
 
 export const LastInvokedScriptByProjectSchema = Schema.Record(ProjectId, Schema.String);
@@ -44,35 +44,35 @@ export function buildLocalDraftThread(
   };
 }
 
-export function reconcileMountedTerminalThreadIds(input: {
-  currentThreadIds: ReadonlyArray<ThreadId>;
-  openThreadIds: ReadonlyArray<ThreadId>;
-  activeThreadId: ThreadId | null;
-  activeThreadTerminalOpen: boolean;
-  maxHiddenThreadCount?: number;
-}): ThreadId[] {
-  const openThreadIdSet = new Set(input.openThreadIds);
-  const hiddenThreadIds = input.currentThreadIds.filter(
-    (threadId) => threadId !== input.activeThreadId && openThreadIdSet.has(threadId),
+export function reconcileMountedTerminalProjectIds(input: {
+  currentProjectIds: ReadonlyArray<ProjectId>;
+  openProjectIds: ReadonlyArray<ProjectId>;
+  activeProjectId: ProjectId | null;
+  activeProjectTerminalOpen: boolean;
+  maxHiddenProjectCount?: number;
+}): ProjectId[] {
+  const openProjectIdSet = new Set(input.openProjectIds);
+  const hiddenProjectIds = input.currentProjectIds.filter(
+    (projectId) => projectId !== input.activeProjectId && openProjectIdSet.has(projectId),
   );
-  const maxHiddenThreadCount = Math.max(
+  const maxHiddenProjectCount = Math.max(
     0,
-    input.maxHiddenThreadCount ?? MAX_HIDDEN_MOUNTED_TERMINAL_THREADS,
+    input.maxHiddenProjectCount ?? MAX_HIDDEN_MOUNTED_TERMINAL_PROJECTS,
   );
-  const nextThreadIds =
-    hiddenThreadIds.length > maxHiddenThreadCount
-      ? hiddenThreadIds.slice(-maxHiddenThreadCount)
-      : hiddenThreadIds;
+  const nextProjectIds =
+    hiddenProjectIds.length > maxHiddenProjectCount
+      ? hiddenProjectIds.slice(-maxHiddenProjectCount)
+      : hiddenProjectIds;
 
   if (
-    input.activeThreadId &&
-    input.activeThreadTerminalOpen &&
-    !nextThreadIds.includes(input.activeThreadId)
+    input.activeProjectId &&
+    input.activeProjectTerminalOpen &&
+    !nextProjectIds.includes(input.activeProjectId)
   ) {
-    nextThreadIds.push(input.activeThreadId);
+    nextProjectIds.push(input.activeProjectId);
   }
 
-  return nextThreadIds;
+  return nextProjectIds;
 }
 
 export function revokeBlobPreviewUrl(previewUrl: string | undefined): void {

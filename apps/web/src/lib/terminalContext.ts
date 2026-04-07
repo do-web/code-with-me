@@ -1,4 +1,4 @@
-import { type ThreadId } from "@codewithme/contracts";
+import { type ProjectId } from "@codewithme/contracts";
 
 export interface TerminalContextSelection {
   terminalId: string;
@@ -10,7 +10,7 @@ export interface TerminalContextSelection {
 
 export interface TerminalContextDraft extends TerminalContextSelection {
   id: string;
-  threadId: ThreadId;
+  projectId: ProjectId;
   createdAt: string;
 }
 

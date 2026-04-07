@@ -2,6 +2,7 @@ import {
   ArchiveIcon,
   ArrowUpDownIcon,
   ChevronRightIcon,
+  FoldVerticalIcon,
   FolderIcon,
   GitPullRequestIcon,
   PlusIcon,
@@ -9,6 +10,7 @@ import {
   SquarePenIcon,
   TerminalIcon,
   TriangleAlertIcon,
+  UnfoldVerticalIcon,
 } from "lucide-react";
 import { ProjectFavicon } from "./ProjectFavicon";
 import { autoAnimate } from "@formkit/auto-animate";
@@ -60,7 +62,7 @@ import { APP_STAGE_LABEL, APP_VERSION } from "../branding";
 import { isTerminalFocused } from "../lib/terminalFocus";
 import { isLinuxPlatform, isMacPlatform, newCommandId, newProjectId } from "../lib/utils";
 import { useStore } from "../store";
-import { selectThreadTerminalState, useTerminalStateStore } from "../terminalStateStore";
+import { selectProjectTerminalState, useTerminalStateStore } from "../terminalStateStore";
 import { useUiStateStore } from "../uiStateStore";
 import {
   resolveShortcutCommand,
@@ -285,7 +287,10 @@ function SidebarThreadRow(props: SidebarThreadRowProps) {
   const lastVisitedAt = useUiStateStore((state) => state.threadLastVisitedAtById[props.threadId]);
   const runningTerminalIds = useTerminalStateStore(
     (state) =>
-      selectThreadTerminalState(state.terminalStateByThreadId, props.threadId).runningTerminalIds,
+      selectProjectTerminalState(
+        state.terminalStateByProjectId,
+        thread?.projectId ?? ("" as ProjectId),
+      ).runningTerminalIds,
   );
 
   if (!thread) {
@@ -676,12 +681,13 @@ export default function Sidebar() {
   );
   const markThreadUnread = useUiStateStore((store) => store.markThreadUnread);
   const toggleProject = useUiStateStore((store) => store.toggleProject);
+  const setAllProjectsExpanded = useUiStateStore((store) => store.setAllProjectsExpanded);
   const reorderProjects = useUiStateStore((store) => store.reorderProjects);
   const clearComposerDraftForThread = useComposerDraftStore((store) => store.clearDraftThread);
   const getDraftThreadByProjectId = useComposerDraftStore(
     (store) => store.getDraftThreadByProjectId,
   );
-  const terminalStateByThreadId = useTerminalStateStore((state) => state.terminalStateByThreadId);
+  const terminalStateByProjectId = useTerminalStateStore((state) => state.terminalStateByProjectId);
   const clearProjectDraftThreadId = useComposerDraftStore(
     (store) => store.clearProjectDraftThreadId,
   );
@@ -749,8 +755,11 @@ export default function Sidebar() {
     () => new Map(projects.map((project) => [project.id, project.cwd] as const)),
     [projects],
   );
-  const routeTerminalOpen = routeThreadId
-    ? selectThreadTerminalState(terminalStateByThreadId, routeThreadId).terminalOpen
+  const routeProjectId = routeThreadId
+    ? (sidebarThreadsById[routeThreadId]?.projectId ?? null)
+    : null;
+  const routeTerminalOpen = routeProjectId
+    ? selectProjectTerminalState(terminalStateByProjectId, routeProjectId).terminalOpen
     : false;
   const sidebarShortcutLabelOptions = useMemo(
     () => ({
@@ -1432,6 +1441,8 @@ export default function Sidebar() {
     [appSettings.sidebarProjectSortOrder, sidebarProjects, visibleThreads],
   );
   const isManualProjectSorting = appSettings.sidebarProjectSortOrder === "manual";
+  const allProjectsExpanded =
+    sidebarProjects.length > 0 && sidebarProjects.every((p) => p.expanded);
   const renderedProjects = useMemo(
     () =>
       sortedProjects.map((project) => {
@@ -2093,6 +2104,36 @@ export default function Sidebar() {
                       updateSettings({ sidebarThreadSortOrder: sortOrder });
                     }}
                   />
+                  {sidebarProjects.length > 0 && (
+                    <Tooltip>
+                      <TooltipTrigger
+                        render={
+                          <button
+                            type="button"
+                            aria-label={
+                              allProjectsExpanded ? "Collapse all projects" : "Expand all projects"
+                            }
+                            className="inline-flex size-5 cursor-pointer items-center justify-center rounded-md text-muted-foreground/60 transition-colors hover:bg-accent hover:text-foreground"
+                            onClick={() => {
+                              setAllProjectsExpanded(
+                                sidebarProjects.map((p) => p.id),
+                                !allProjectsExpanded,
+                              );
+                            }}
+                          />
+                        }
+                      >
+                        {allProjectsExpanded ? (
+                          <FoldVerticalIcon className="size-3.5" />
+                        ) : (
+                          <UnfoldVerticalIcon className="size-3.5" />
+                        )}
+                      </TooltipTrigger>
+                      <TooltipPopup side="right">
+                        {allProjectsExpanded ? "Collapse all projects" : "Expand all projects"}
+                      </TooltipPopup>
+                    </Tooltip>
+                  )}
                   <Tooltip>
                     <TooltipTrigger
                       render={

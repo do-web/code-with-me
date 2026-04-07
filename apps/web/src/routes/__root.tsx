@@ -39,7 +39,7 @@ import { useTerminalStateStore } from "../terminalStateStore";
 import { migrateLocalSettingsToServer } from "../hooks/useSettings";
 import { providerQueryKeys } from "../lib/providerReactQuery";
 import { projectQueryKeys } from "../lib/projectReactQuery";
-import { collectActiveTerminalThreadIds } from "../lib/terminalStateCleanup";
+import { collectActiveTerminalProjectIds } from "../lib/terminalStateCleanup";
 import { deriveOrchestrationBatchEffects } from "../orchestrationEventEffects";
 import { createOrchestrationRecoveryCoordinator } from "../orchestrationRecovery";
 import { deriveReplayRetryDecision } from "../orchestrationRecovery";
@@ -205,7 +205,6 @@ function EventRouter() {
   const syncProjects = useUiStateStore((store) => store.syncProjects);
   const syncThreads = useUiStateStore((store) => store.syncThreads);
   const clearThreadUi = useUiStateStore((store) => store.clearThreadUi);
-  const removeTerminalState = useTerminalStateStore((store) => store.removeTerminalState);
   const removeOrphanedTerminalStates = useTerminalStateStore(
     (store) => store.removeOrphanedTerminalStates,
   );
@@ -329,18 +328,10 @@ function EventRouter() {
         })),
       );
       clearPromotedDraftThreads(threads.map((thread) => thread.id));
-      const draftThreadIds = Object.keys(
-        useComposerDraftStore.getState().draftThreadsByThreadId,
-      ) as ThreadId[];
-      const activeThreadIds = collectActiveTerminalThreadIds({
-        snapshotThreads: threads.map((thread) => ({
-          id: thread.id,
-          deletedAt: null,
-          archivedAt: thread.archivedAt,
-        })),
-        draftThreadIds,
+      const activeProjectIds = collectActiveTerminalProjectIds({
+        snapshotProjects: projects.map((project) => ({ id: project.id })),
       });
-      removeOrphanedTerminalStates(activeThreadIds);
+      removeOrphanedTerminalStates(activeProjectIds);
     };
 
     const queryInvalidationThrottler = new Throttler(
@@ -405,9 +396,6 @@ function EventRouter() {
       for (const threadId of batchEffects.clearDeletedThreadIds) {
         draftStore.clearDraftThread(threadId);
         clearThreadUi(threadId);
-      }
-      for (const threadId of batchEffects.removeTerminalStateThreadIds) {
-        removeTerminalState(threadId);
       }
     };
     const flushPendingDomainEvents = () => {
@@ -535,10 +523,6 @@ function EventRouter() {
       }
     });
     const unsubTerminalEvent = api.terminal.onEvent((event) => {
-      const thread = useStore.getState().threads.find((entry) => entry.id === event.threadId);
-      if (thread && thread.archivedAt !== null) {
-        return;
-      }
       applyTerminalEvent(event);
     });
     return () => {
@@ -555,7 +539,6 @@ function EventRouter() {
     applyOrchestrationEvents,
     navigate,
     queryClient,
-    removeTerminalState,
     removeOrphanedTerminalStates,
     applyTerminalEvent,
     clearThreadUi,

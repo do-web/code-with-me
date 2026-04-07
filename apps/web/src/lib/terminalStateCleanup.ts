@@ -1,35 +1,15 @@
-import type { ThreadId } from "@codewithme/contracts";
+import type { ProjectId } from "@codewithme/contracts";
 
-interface TerminalRetentionThread {
-  id: ThreadId;
-  deletedAt: string | null;
-  archivedAt: string | null;
+interface TerminalRetentionProject {
+  id: ProjectId;
 }
 
-interface CollectActiveTerminalThreadIdsInput {
-  snapshotThreads: readonly TerminalRetentionThread[];
-  draftThreadIds: Iterable<ThreadId>;
+interface CollectActiveTerminalProjectIdsInput {
+  snapshotProjects: readonly TerminalRetentionProject[];
 }
 
-export function collectActiveTerminalThreadIds(
-  input: CollectActiveTerminalThreadIdsInput,
-): Set<ThreadId> {
-  const activeThreadIds = new Set<ThreadId>();
-  const snapshotThreadById = new Map(input.snapshotThreads.map((thread) => [thread.id, thread]));
-  for (const thread of input.snapshotThreads) {
-    if (thread.deletedAt !== null) continue;
-    if (thread.archivedAt !== null) continue;
-    activeThreadIds.add(thread.id);
-  }
-  for (const draftThreadId of input.draftThreadIds) {
-    const snapshotThread = snapshotThreadById.get(draftThreadId);
-    if (
-      snapshotThread &&
-      (snapshotThread.deletedAt !== null || snapshotThread.archivedAt !== null)
-    ) {
-      continue;
-    }
-    activeThreadIds.add(draftThreadId);
-  }
-  return activeThreadIds;
+export function collectActiveTerminalProjectIds(
+  input: CollectActiveTerminalProjectIdsInput,
+): Set<ProjectId> {
+  return new Set(input.snapshotProjects.map((project) => project.id));
 }

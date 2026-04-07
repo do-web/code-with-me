@@ -271,7 +271,7 @@ function terminalContextSignature(contexts: ReadonlyArray<TerminalContextDraft>)
     .map((context) =>
       [
         context.id,
-        context.threadId,
+        context.projectId,
         context.terminalId,
         context.terminalLabel,
         context.lineStart,

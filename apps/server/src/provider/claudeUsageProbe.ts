@@ -1,18 +1,8 @@
 import { createRequire } from "node:module";
 
 import type { ProviderQuota } from "@codewithme/contracts";
+import { stripAnsi } from "@codewithme/shared/ansi";
 import { Effect } from "effect";
-
-// ── ANSI stripping ──────────────────────────────────────────────────
-
-function stripAnsi(text: string): string {
-  return text
-    .replace(/\x1b\[[0-9;?]*[a-zA-Z]/g, "")
-    .replace(/\x1b\].*?\x07/g, "")
-    .replace(/\x1b[>]\d+[a-zA-Z]/g, "")
-    .replace(/\x1b[<][a-zA-Z]/g, "")
-    .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g, "");
-}
 
 // ── Output parsing ──────────────────────────────────────────────────
 //

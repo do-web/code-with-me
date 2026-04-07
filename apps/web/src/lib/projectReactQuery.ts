@@ -1,11 +1,12 @@
 import type { ProjectSearchEntriesResult } from "@codewithme/contracts";
-import { queryOptions } from "@tanstack/react-query";
+import { queryOptions, type QueryClient } from "@tanstack/react-query";
 import { ensureNativeApi } from "~/nativeApi";
 
 export const projectQueryKeys = {
   all: ["projects"] as const,
   searchEntries: (cwd: string | null, query: string, limit: number) =>
     ["projects", "search-entries", cwd, query, limit] as const,
+  packageScripts: (cwd: string | null) => ["projects", "package-scripts", cwd] as const,
 };
 
 const DEFAULT_SEARCH_ENTRIES_LIMIT = 80;
@@ -39,5 +40,27 @@ export function projectSearchEntriesQueryOptions(input: {
     enabled: (input.enabled ?? true) && input.cwd !== null && input.query.length > 0,
     staleTime: input.staleTime ?? DEFAULT_SEARCH_ENTRIES_STALE_TIME,
     placeholderData: (previous) => previous ?? EMPTY_SEARCH_ENTRIES_RESULT,
+  });
+}
+
+const PACKAGE_SCRIPTS_STALE_TIME = 30_000;
+
+export function packageScriptsQueryOptions(input: { cwd: string | null }) {
+  return queryOptions({
+    queryKey: projectQueryKeys.packageScripts(input.cwd),
+    queryFn: async () => {
+      const api = ensureNativeApi();
+      if (!input.cwd) throw new Error("Package scripts query requires a cwd.");
+      return api.projects.readPackageScripts({ cwd: input.cwd });
+    },
+    enabled: input.cwd !== null,
+    staleTime: PACKAGE_SCRIPTS_STALE_TIME,
+    retry: false,
+  });
+}
+
+export function invalidatePackageScriptsQuery(queryClient: QueryClient, cwd: string | null) {
+  return queryClient.invalidateQueries({
+    queryKey: projectQueryKeys.packageScripts(cwd),
   });
 }

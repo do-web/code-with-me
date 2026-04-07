@@ -4,6 +4,7 @@ import {
   type ClaudeCodeEffort,
   type ClaudeModelOptions,
   type CodexModelOptions,
+  type GeminiModelOptions,
   type ModelCapabilities,
   type ModelSelection,
   type ProviderKind,
@@ -117,6 +118,13 @@ export function normalizeClaudeModelOptionsWithCapabilities(
   return Object.keys(nextOptions).length > 0 ? nextOptions : undefined;
 }
 
+export function normalizeGeminiModelOptionsWithCapabilities(
+  _caps: ModelCapabilities,
+  _modelOptions: GeminiModelOptions | null | undefined,
+): GeminiModelOptions | undefined {
+  return undefined;
+}
+
 export function isClaudeUltrathinkPrompt(text: string | null | undefined): boolean {
   return typeof text === "string" && /\bultrathink\b/i.test(text);
 }
@@ -216,6 +224,9 @@ export function resolveApiModelId(modelSelection: ModelSelection): string {
         default:
           return modelSelection.model;
       }
+    }
+    case "gemini": {
+      return modelSelection.model;
     }
     default: {
       return modelSelection.model;

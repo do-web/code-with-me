@@ -591,7 +591,6 @@ export default function DiffPanel({ mode = "inline" }: DiffPanelProps) {
                 config={{
                   overscrollSize: 600,
                   intersectionObserverMargin: 1200,
-                  resizeDebugging: false,
                 }}
               >
                 {renderableFiles.map((fileDiff) => {

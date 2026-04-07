@@ -356,6 +356,22 @@ export function setProjectExpanded(
   };
 }
 
+export function setAllProjectsExpanded(
+  state: UiState,
+  projectIds: readonly ProjectId[],
+  expanded: boolean,
+): UiState {
+  const next: Record<string, boolean> = { ...state.projectExpandedById };
+  let changed = false;
+  for (const id of projectIds) {
+    if ((next[id] ?? true) !== expanded) {
+      next[id] = expanded;
+      changed = true;
+    }
+  }
+  return changed ? { ...state, projectExpandedById: next } : state;
+}
+
 export function reorderProjects(
   state: UiState,
   draggedProjectId: ProjectId,
@@ -389,6 +405,7 @@ interface UiStateStore extends UiState {
   clearThreadUi: (threadId: ThreadId) => void;
   toggleProject: (projectId: ProjectId) => void;
   setProjectExpanded: (projectId: ProjectId, expanded: boolean) => void;
+  setAllProjectsExpanded: (projectIds: readonly ProjectId[], expanded: boolean) => void;
   reorderProjects: (draggedProjectId: ProjectId, targetProjectId: ProjectId) => void;
 }
 
@@ -404,6 +421,8 @@ export const useUiStateStore = create<UiStateStore>((set) => ({
   toggleProject: (projectId) => set((state) => toggleProject(state, projectId)),
   setProjectExpanded: (projectId, expanded) =>
     set((state) => setProjectExpanded(state, projectId, expanded)),
+  setAllProjectsExpanded: (projectIds, expanded) =>
+    set((state) => setAllProjectsExpanded(state, projectIds, expanded)),
   reorderProjects: (draggedProjectId, targetProjectId) =>
     set((state) => reorderProjects(state, draggedProjectId, targetProjectId)),
 }));

@@ -1,11 +1,14 @@
 import {
   type EditorId,
+  type PackageManagerId,
+  type PackageScriptEntry,
   type ProjectScript,
   type ResolvedKeybindingsConfig,
   type ThreadId,
 } from "@codewithme/contracts";
 import { memo } from "react";
 import GitActionsControl from "../GitActionsControl";
+import { PackageScriptsDropdown } from "../PackageScriptsDropdown";
 import { UncommittedChangesButton } from "../UncommittedChangesButton";
 import { DiffIcon, TerminalSquareIcon } from "lucide-react";
 import { Badge } from "../ui/badge";
@@ -25,6 +28,8 @@ interface ChatHeaderProps {
   preferredScriptId: string | null;
   keybindings: ResolvedKeybindingsConfig;
   availableEditors: ReadonlyArray<EditorId>;
+  packageScripts: readonly PackageScriptEntry[] | null;
+  packageManager: PackageManagerId | null;
   terminalAvailable: boolean;
   terminalOpen: boolean;
   terminalToggleShortcutLabel: string | null;
@@ -36,6 +41,7 @@ interface ChatHeaderProps {
   onAddProjectScript: (input: NewProjectScriptInput) => Promise<void>;
   onUpdateProjectScript: (scriptId: string, input: NewProjectScriptInput) => Promise<void>;
   onDeleteProjectScript: (scriptId: string) => Promise<void>;
+  onRunPackageScript: (runCommand: string) => void;
   onToggleTerminal: () => void;
   onToggleDiff: () => void;
   onToggleChanges: () => void;
@@ -51,6 +57,8 @@ export const ChatHeader = memo(function ChatHeader({
   preferredScriptId,
   keybindings,
   availableEditors,
+  packageScripts,
+  packageManager,
   terminalAvailable,
   terminalOpen,
   terminalToggleShortcutLabel,
@@ -62,6 +70,7 @@ export const ChatHeader = memo(function ChatHeader({
   onAddProjectScript,
   onUpdateProjectScript,
   onDeleteProjectScript,
+  onRunPackageScript,
   onToggleTerminal,
   onToggleDiff,
   onToggleChanges,
@@ -88,6 +97,13 @@ export const ChatHeader = memo(function ChatHeader({
         )}
       </div>
       <div className="flex shrink-0 items-center justify-end gap-2 @3xl/header-actions:gap-3">
+        {packageScripts && packageScripts.length > 0 && packageManager && (
+          <PackageScriptsDropdown
+            scripts={packageScripts}
+            packageManager={packageManager}
+            onRunScript={onRunPackageScript}
+          />
+        )}
         {activeProjectScripts && (
           <ProjectScriptsControl
             scripts={activeProjectScripts}

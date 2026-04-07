@@ -6,6 +6,7 @@ import { QuotaBar } from "./QuotaBar";
 function providerDisplayName(provider: string): string {
   if (provider === "claudeAgent") return "Claude";
   if (provider === "codex") return "Codex";
+  if (provider === "gemini") return "Gemini";
   return provider;
 }
 

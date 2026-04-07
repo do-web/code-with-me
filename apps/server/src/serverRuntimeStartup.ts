@@ -214,6 +214,15 @@ const publishCodexUsageStats = Effect.gen(function* () {
   }
 });
 
+const publishGeminiUsageStats = Effect.gen(function* () {
+  const serverSettings = yield* ServerSettingsService;
+  const settings = yield* serverSettings.getSettings;
+  if (!settings.providers.gemini.enabled) return;
+  // Gemini CLI does not expose a usage/quota probe command.
+  // Token stats are collected per-session from stream-json output.
+  yield* Effect.logDebug("[usage-probe] Gemini probe skipped (no usage endpoint available)");
+});
+
 const autoBootstrapWelcome = Effect.gen(function* () {
   const serverConfig = yield* ServerConfig;
   const projectionReadModelQuery = yield* ProjectionSnapshotQuery;
@@ -394,16 +403,19 @@ const makeServerRuntimeStartup = Effect.gen(function* () {
       Effect.all([
         publishClaudeUsageStats.pipe(Effect.ignoreCause({ log: true })),
         publishCodexUsageStats.pipe(Effect.ignoreCause({ log: true })),
+        publishGeminiUsageStats.pipe(Effect.ignoreCause({ log: true })),
       ]).pipe(Effect.asVoid),
     );
 
-    // Periodic provider usage refresh — keeps cloud usage and account identity up to date.
+    // Periodic provider usage refresh every 5 minutes.
+    // Claude CLI has a hard rate limit on /usage, so we poll infrequently.
     yield* Effect.forkScoped(
-      Effect.sleep("60 seconds").pipe(
+      Effect.sleep("5 minutes").pipe(
         Effect.andThen(
           Effect.all([
             publishClaudeUsageStats.pipe(Effect.ignoreCause({ log: true })),
             publishCodexUsageStats.pipe(Effect.ignoreCause({ log: true })),
+            publishGeminiUsageStats.pipe(Effect.ignoreCause({ log: true })),
           ]),
         ),
         Effect.forever,

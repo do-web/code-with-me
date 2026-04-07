@@ -41,7 +41,7 @@ export function deriveOrchestrationBatchEffects(
         threadLifecycleEffects.set(event.payload.threadId, {
           clearPromotedDraft: false,
           clearDeletedThread: true,
-          removeTerminalState: true,
+          removeTerminalState: false,
         });
         break;
       }
@@ -50,7 +50,7 @@ export function deriveOrchestrationBatchEffects(
         threadLifecycleEffects.set(event.payload.threadId, {
           clearPromotedDraft: false,
           clearDeletedThread: false,
-          removeTerminalState: true,
+          removeTerminalState: false,
         });
         break;
       }

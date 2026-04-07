@@ -1,13 +1,14 @@
 /**
- * Single Zustand store for terminal UI state keyed by threadId.
+ * Single Zustand store for terminal UI state keyed by projectId.
  *
  * Terminal transition helpers are intentionally private to keep the public
  * API constrained to store actions/selectors.
  */
 
-import { ThreadId, type TerminalEvent } from "@codewithme/contracts";
+import { ProjectId, type TerminalEvent } from "@codewithme/contracts";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
+import { analyzeOutput, extractLastLine } from "./lib/terminalAnsi";
 import { resolveStorage } from "./lib/storage";
 import { terminalRunningSubprocessFromEvent } from "./terminalActivity";
 import {
@@ -19,12 +20,19 @@ import {
 
 interface ThreadTerminalState {
   terminalOpen: boolean;
+  terminalCollapsed: boolean;
   terminalHeight: number;
   terminalIds: string[];
   runningTerminalIds: string[];
   activeTerminalId: string;
   terminalGroups: ThreadTerminalGroup[];
   activeTerminalGroupId: string;
+}
+
+export interface TerminalCollapsedInfo {
+  lastMessage: string;
+  warningCount: number;
+  errorCount: number;
 }
 
 export interface ThreadTerminalLaunchContext {
@@ -159,6 +167,7 @@ function terminalGroupsEqual(left: ThreadTerminalGroup[], right: ThreadTerminalG
 function threadTerminalStateEqual(left: ThreadTerminalState, right: ThreadTerminalState): boolean {
   return (
     left.terminalOpen === right.terminalOpen &&
+    left.terminalCollapsed === right.terminalCollapsed &&
     left.terminalHeight === right.terminalHeight &&
     left.activeTerminalId === right.activeTerminalId &&
     left.activeTerminalGroupId === right.activeTerminalGroupId &&
@@ -170,6 +179,7 @@ function threadTerminalStateEqual(left: ThreadTerminalState, right: ThreadTermin
 
 const DEFAULT_THREAD_TERMINAL_STATE: ThreadTerminalState = Object.freeze({
   terminalOpen: false,
+  terminalCollapsed: false,
   terminalHeight: DEFAULT_THREAD_TERMINAL_HEIGHT,
   terminalIds: [DEFAULT_THREAD_TERMINAL_ID],
   runningTerminalIds: [],
@@ -214,6 +224,7 @@ function normalizeThreadTerminalState(state: ThreadTerminalState): ThreadTermina
 
   const normalized: ThreadTerminalState = {
     terminalOpen: state.terminalOpen,
+    terminalCollapsed: state.terminalCollapsed ?? false,
     terminalHeight:
       Number.isFinite(state.terminalHeight) && state.terminalHeight > 0
         ? state.terminalHeight
@@ -240,8 +251,8 @@ function isValidTerminalId(terminalId: string): boolean {
   return terminalId.trim().length > 0;
 }
 
-function terminalEventBufferKey(threadId: ThreadId, terminalId: string): string {
-  return `${threadId}\u0000${terminalId}`;
+function terminalEventBufferKey(projectId: ProjectId, terminalId: string): string {
+  return `${projectId}\u0000${terminalId}`;
 }
 
 function copyTerminalGroups(groups: ThreadTerminalGroup[]): ThreadTerminalGroup[] {
@@ -256,7 +267,7 @@ function appendTerminalEventEntry(
   nextTerminalEventId: number,
   event: TerminalEvent,
 ) {
-  const key = terminalEventBufferKey(ThreadId.makeUnsafe(event.threadId), event.terminalId);
+  const key = terminalEventBufferKey(ProjectId.makeUnsafe(event.projectId), event.terminalId);
   const currentEntries = terminalEventEntriesByKey[key] ?? EMPTY_TERMINAL_EVENT_ENTRIES;
   const nextEntry: TerminalEventEntry = {
     id: nextTerminalEventId,
@@ -379,6 +390,15 @@ function setThreadTerminalOpen(state: ThreadTerminalState, open: boolean): Threa
   return { ...normalized, terminalOpen: open };
 }
 
+function setThreadTerminalCollapsed(
+  state: ThreadTerminalState,
+  collapsed: boolean,
+): ThreadTerminalState {
+  const normalized = normalizeThreadTerminalState(state);
+  if (normalized.terminalCollapsed === collapsed) return normalized;
+  return { ...normalized, terminalCollapsed: collapsed };
+}
+
 function setThreadTerminalHeight(state: ThreadTerminalState, height: number): ThreadTerminalState {
   const normalized = normalizeThreadTerminalState(state);
   if (!Number.isFinite(height) || height <= 0 || normalized.terminalHeight === height) {
@@ -452,6 +472,7 @@ function closeThreadTerminal(state: ThreadTerminalState, terminalId: string): Th
 
   return normalizeThreadTerminalState({
     terminalOpen: normalized.terminalOpen,
+    terminalCollapsed: normalized.terminalCollapsed,
     terminalHeight: normalized.terminalHeight,
     terminalIds: remainingTerminalIds,
     runningTerminalIds: normalized.runningTerminalIds.filter((id) => id !== terminalId),
@@ -483,126 +504,245 @@ function setThreadTerminalActivity(
   return { ...normalized, runningTerminalIds: [...runningTerminalIds] };
 }
 
-export function selectThreadTerminalState(
-  terminalStateByThreadId: Record<ThreadId, ThreadTerminalState>,
-  threadId: ThreadId,
+export function selectProjectTerminalState(
+  terminalStateByProjectId: Record<ProjectId, ThreadTerminalState>,
+  projectId: ProjectId,
 ): ThreadTerminalState {
-  if (threadId.length === 0) {
+  if (projectId.length === 0) {
     return getDefaultThreadTerminalState();
   }
-  return terminalStateByThreadId[threadId] ?? getDefaultThreadTerminalState();
+  return terminalStateByProjectId[projectId] ?? getDefaultThreadTerminalState();
 }
 
-function updateTerminalStateByThreadId(
-  terminalStateByThreadId: Record<ThreadId, ThreadTerminalState>,
-  threadId: ThreadId,
+function updateTerminalStateByProjectId(
+  terminalStateByProjectId: Record<ProjectId, ThreadTerminalState>,
+  projectId: ProjectId,
   updater: (state: ThreadTerminalState) => ThreadTerminalState,
-): Record<ThreadId, ThreadTerminalState> {
-  if (threadId.length === 0) {
-    return terminalStateByThreadId;
+): Record<ProjectId, ThreadTerminalState> {
+  if (projectId.length === 0) {
+    return terminalStateByProjectId;
   }
 
-  const current = selectThreadTerminalState(terminalStateByThreadId, threadId);
+  const current = selectProjectTerminalState(terminalStateByProjectId, projectId);
   const next = updater(current);
   if (next === current) {
-    return terminalStateByThreadId;
+    return terminalStateByProjectId;
   }
 
   if (isDefaultThreadTerminalState(next)) {
-    if (terminalStateByThreadId[threadId] === undefined) {
-      return terminalStateByThreadId;
+    if (terminalStateByProjectId[projectId] === undefined) {
+      return terminalStateByProjectId;
     }
-    const { [threadId]: _removed, ...rest } = terminalStateByThreadId;
-    return rest as Record<ThreadId, ThreadTerminalState>;
+    const { [projectId]: _removed, ...rest } = terminalStateByProjectId;
+    return rest as Record<ProjectId, ThreadTerminalState>;
   }
 
   return {
-    ...terminalStateByThreadId,
-    [threadId]: next,
+    ...terminalStateByProjectId,
+    [projectId]: next,
   };
 }
 
 export function selectTerminalEventEntries(
   terminalEventEntriesByKey: Record<string, ReadonlyArray<TerminalEventEntry>>,
-  threadId: ThreadId,
+  projectId: ProjectId,
   terminalId: string,
 ): ReadonlyArray<TerminalEventEntry> {
-  if (threadId.length === 0 || terminalId.trim().length === 0) {
+  if (projectId.length === 0 || terminalId.trim().length === 0) {
     return EMPTY_TERMINAL_EVENT_ENTRIES;
   }
   return (
-    terminalEventEntriesByKey[terminalEventBufferKey(threadId, terminalId)] ??
+    terminalEventEntriesByKey[terminalEventBufferKey(projectId, terminalId)] ??
     EMPTY_TERMINAL_EVENT_ENTRIES
   );
 }
 
+const DEFAULT_COLLAPSED_INFO: TerminalCollapsedInfo = {
+  lastMessage: "",
+  warningCount: 0,
+  errorCount: 0,
+};
+
+export function selectTerminalCollapsedInfo(
+  terminalCollapsedInfoByKey: Record<string, TerminalCollapsedInfo>,
+  projectId: ProjectId,
+  terminalId: string,
+): TerminalCollapsedInfo {
+  if (projectId.length === 0 || terminalId.trim().length === 0) {
+    return DEFAULT_COLLAPSED_INFO;
+  }
+  return (
+    terminalCollapsedInfoByKey[terminalEventBufferKey(projectId, terminalId)] ??
+    DEFAULT_COLLAPSED_INFO
+  );
+}
+
+function updateCollapsedInfoForEvent(
+  info: TerminalCollapsedInfo,
+  event: TerminalEvent,
+): TerminalCollapsedInfo {
+  if (event.type === "output") {
+    const { lastLine, warnings, errors } = analyzeOutput(event.data);
+    return {
+      lastMessage: lastLine ?? info.lastMessage,
+      warningCount: info.warningCount + warnings,
+      errorCount: info.errorCount + errors,
+    };
+  }
+  if (event.type === "error") {
+    return {
+      lastMessage: event.message,
+      warningCount: info.warningCount,
+      errorCount: info.errorCount + 1,
+    };
+  }
+  if (event.type === "started" || event.type === "restarted") {
+    return { lastMessage: "", warningCount: 0, errorCount: 0 };
+  }
+  if (event.type === "cleared") {
+    return { ...info, lastMessage: "" };
+  }
+  return info;
+}
+
+function initCollapsedInfoFromBuffer(
+  entries: ReadonlyArray<TerminalEventEntry>,
+): TerminalCollapsedInfo {
+  for (let i = entries.length - 1; i >= 0; i--) {
+    const entry = entries[i]!;
+    if (entry.event.type === "output") {
+      const lastLine = extractLastLine(entry.event.data);
+      if (lastLine) return { lastMessage: lastLine, warningCount: 0, errorCount: 0 };
+    }
+  }
+  return { lastMessage: "", warningCount: 0, errorCount: 0 };
+}
+
+function applyCollapsedTransition(
+  state: Pick<
+    TerminalStateStoreState,
+    "terminalStateByProjectId" | "terminalEventEntriesByKey" | "terminalCollapsedInfoByKey"
+  >,
+  projectId: ProjectId,
+  collapsed: boolean,
+): Partial<TerminalStateStoreState> {
+  const nextTerminalStateByProjectId = updateTerminalStateByProjectId(
+    state.terminalStateByProjectId,
+    projectId,
+    (current) => setThreadTerminalCollapsed(current, collapsed),
+  );
+  if (nextTerminalStateByProjectId === state.terminalStateByProjectId) {
+    return state as TerminalStateStoreState;
+  }
+
+  const terminalState = selectProjectTerminalState(nextTerminalStateByProjectId, projectId);
+  let nextCollapsedInfoByKey = state.terminalCollapsedInfoByKey;
+
+  if (collapsed) {
+    const key = terminalEventBufferKey(projectId, terminalState.activeTerminalId);
+    const entries = state.terminalEventEntriesByKey[key] ?? EMPTY_TERMINAL_EVENT_ENTRIES;
+    nextCollapsedInfoByKey = {
+      ...nextCollapsedInfoByKey,
+      [key]: initCollapsedInfoFromBuffer(entries),
+    };
+  } else {
+    const updates: Record<string, TerminalCollapsedInfo> = {};
+    for (const terminalId of terminalState.terminalIds) {
+      const key = terminalEventBufferKey(projectId, terminalId);
+      const existing = nextCollapsedInfoByKey[key];
+      if (existing && (existing.warningCount > 0 || existing.errorCount > 0)) {
+        updates[key] = { ...existing, warningCount: 0, errorCount: 0 };
+      }
+    }
+    if (Object.keys(updates).length > 0) {
+      nextCollapsedInfoByKey = { ...nextCollapsedInfoByKey, ...updates };
+    }
+  }
+
+  return {
+    terminalStateByProjectId: nextTerminalStateByProjectId,
+    terminalCollapsedInfoByKey: nextCollapsedInfoByKey,
+  };
+}
+
 interface TerminalStateStoreState {
-  terminalStateByThreadId: Record<ThreadId, ThreadTerminalState>;
-  terminalLaunchContextByThreadId: Record<ThreadId, ThreadTerminalLaunchContext>;
+  terminalStateByProjectId: Record<ProjectId, ThreadTerminalState>;
+  terminalLaunchContextByProjectId: Record<ProjectId, ThreadTerminalLaunchContext>;
   terminalEventEntriesByKey: Record<string, ReadonlyArray<TerminalEventEntry>>;
+  terminalCollapsedInfoByKey: Record<string, TerminalCollapsedInfo>;
   nextTerminalEventId: number;
-  setTerminalOpen: (threadId: ThreadId, open: boolean) => void;
-  setTerminalHeight: (threadId: ThreadId, height: number) => void;
-  splitTerminal: (threadId: ThreadId, terminalId: string) => void;
-  newTerminal: (threadId: ThreadId, terminalId: string) => void;
+  setTerminalOpen: (projectId: ProjectId, open: boolean) => void;
+  setTerminalHeight: (projectId: ProjectId, height: number) => void;
+  setTerminalCollapsed: (projectId: ProjectId, collapsed: boolean) => void;
+  toggleTerminalCollapsed: (projectId: ProjectId) => void;
+  splitTerminal: (projectId: ProjectId, terminalId: string) => void;
+  newTerminal: (projectId: ProjectId, terminalId: string) => void;
   ensureTerminal: (
-    threadId: ThreadId,
+    projectId: ProjectId,
     terminalId: string,
     options?: { open?: boolean; active?: boolean },
   ) => void;
-  setActiveTerminal: (threadId: ThreadId, terminalId: string) => void;
-  closeTerminal: (threadId: ThreadId, terminalId: string) => void;
-  setTerminalLaunchContext: (threadId: ThreadId, context: ThreadTerminalLaunchContext) => void;
-  clearTerminalLaunchContext: (threadId: ThreadId) => void;
+  setActiveTerminal: (projectId: ProjectId, terminalId: string) => void;
+  closeTerminal: (projectId: ProjectId, terminalId: string) => void;
+  setTerminalLaunchContext: (projectId: ProjectId, context: ThreadTerminalLaunchContext) => void;
+  clearTerminalLaunchContext: (projectId: ProjectId) => void;
   setTerminalActivity: (
-    threadId: ThreadId,
+    projectId: ProjectId,
     terminalId: string,
     hasRunningSubprocess: boolean,
   ) => void;
   recordTerminalEvent: (event: TerminalEvent) => void;
   applyTerminalEvent: (event: TerminalEvent) => void;
-  clearTerminalState: (threadId: ThreadId) => void;
-  removeTerminalState: (threadId: ThreadId) => void;
-  removeOrphanedTerminalStates: (activeThreadIds: Set<ThreadId>) => void;
+  clearTerminalState: (projectId: ProjectId) => void;
+  removeTerminalState: (projectId: ProjectId) => void;
+  removeOrphanedTerminalStates: (activeProjectIds: Set<ProjectId>) => void;
 }
 
 export const useTerminalStateStore = create<TerminalStateStoreState>()(
   persist(
     (set) => {
       const updateTerminal = (
-        threadId: ThreadId,
+        projectId: ProjectId,
         updater: (state: ThreadTerminalState) => ThreadTerminalState,
       ) => {
         set((state) => {
-          const nextTerminalStateByThreadId = updateTerminalStateByThreadId(
-            state.terminalStateByThreadId,
-            threadId,
+          const nextTerminalStateByProjectId = updateTerminalStateByProjectId(
+            state.terminalStateByProjectId,
+            projectId,
             updater,
           );
-          if (nextTerminalStateByThreadId === state.terminalStateByThreadId) {
+          if (nextTerminalStateByProjectId === state.terminalStateByProjectId) {
             return state;
           }
           return {
-            terminalStateByThreadId: nextTerminalStateByThreadId,
+            terminalStateByProjectId: nextTerminalStateByProjectId,
           };
         });
       };
 
       return {
-        terminalStateByThreadId: {},
-        terminalLaunchContextByThreadId: {},
+        terminalStateByProjectId: {},
+        terminalLaunchContextByProjectId: {},
         terminalEventEntriesByKey: {},
+        terminalCollapsedInfoByKey: {},
         nextTerminalEventId: 1,
-        setTerminalOpen: (threadId, open) =>
-          updateTerminal(threadId, (state) => setThreadTerminalOpen(state, open)),
-        setTerminalHeight: (threadId, height) =>
-          updateTerminal(threadId, (state) => setThreadTerminalHeight(state, height)),
-        splitTerminal: (threadId, terminalId) =>
-          updateTerminal(threadId, (state) => splitThreadTerminal(state, terminalId)),
-        newTerminal: (threadId, terminalId) =>
-          updateTerminal(threadId, (state) => newThreadTerminal(state, terminalId)),
-        ensureTerminal: (threadId, terminalId, options) =>
-          updateTerminal(threadId, (state) => {
+        setTerminalOpen: (projectId, open) =>
+          updateTerminal(projectId, (state) => setThreadTerminalOpen(state, open)),
+        setTerminalHeight: (projectId, height) =>
+          updateTerminal(projectId, (state) => setThreadTerminalHeight(state, height)),
+        setTerminalCollapsed: (projectId, collapsed) =>
+          set((state) => applyCollapsedTransition(state, projectId, collapsed)),
+        toggleTerminalCollapsed: (projectId) =>
+          set((state) => {
+            const current = selectProjectTerminalState(state.terminalStateByProjectId, projectId);
+            return applyCollapsedTransition(state, projectId, !current.terminalCollapsed);
+          }),
+        splitTerminal: (projectId, terminalId) =>
+          updateTerminal(projectId, (state) => splitThreadTerminal(state, terminalId)),
+        newTerminal: (projectId, terminalId) =>
+          updateTerminal(projectId, (state) => newThreadTerminal(state, terminalId)),
+        ensureTerminal: (projectId, terminalId, options) =>
+          updateTerminal(projectId, (state) => {
             let nextState = state;
             if (!state.terminalIds.includes(terminalId)) {
               nextState = newThreadTerminal(nextState, terminalId);
@@ -622,47 +762,72 @@ export const useTerminalStateStore = create<TerminalStateStoreState>()(
             }
             return normalizeThreadTerminalState(nextState);
           }),
-        setActiveTerminal: (threadId, terminalId) =>
-          updateTerminal(threadId, (state) => setThreadActiveTerminal(state, terminalId)),
-        closeTerminal: (threadId, terminalId) =>
-          updateTerminal(threadId, (state) => closeThreadTerminal(state, terminalId)),
-        setTerminalLaunchContext: (threadId, context) =>
+        setActiveTerminal: (projectId, terminalId) =>
+          updateTerminal(projectId, (state) => setThreadActiveTerminal(state, terminalId)),
+        closeTerminal: (projectId, terminalId) =>
+          updateTerminal(projectId, (state) => closeThreadTerminal(state, terminalId)),
+        setTerminalLaunchContext: (projectId, context) =>
           set((state) => ({
-            terminalLaunchContextByThreadId: {
-              ...state.terminalLaunchContextByThreadId,
-              [threadId]: context,
+            terminalLaunchContextByProjectId: {
+              ...state.terminalLaunchContextByProjectId,
+              [projectId]: context,
             },
           })),
-        clearTerminalLaunchContext: (threadId) =>
+        clearTerminalLaunchContext: (projectId) =>
           set((state) => {
-            if (!state.terminalLaunchContextByThreadId[threadId]) {
+            if (!state.terminalLaunchContextByProjectId[projectId]) {
               return state;
             }
-            const { [threadId]: _removed, ...rest } = state.terminalLaunchContextByThreadId;
-            return { terminalLaunchContextByThreadId: rest };
+            const { [projectId]: _removed, ...rest } = state.terminalLaunchContextByProjectId;
+            return { terminalLaunchContextByProjectId: rest };
           }),
-        setTerminalActivity: (threadId, terminalId, hasRunningSubprocess) =>
-          updateTerminal(threadId, (state) =>
+        setTerminalActivity: (projectId, terminalId, hasRunningSubprocess) =>
+          updateTerminal(projectId, (state) =>
             setThreadTerminalActivity(state, terminalId, hasRunningSubprocess),
           ),
         recordTerminalEvent: (event) =>
-          set((state) =>
-            appendTerminalEventEntry(
+          set((state) => {
+            const nextEventState = appendTerminalEventEntry(
               state.terminalEventEntriesByKey,
               state.nextTerminalEventId,
               event,
-            ),
-          ),
+            );
+
+            // Update collapsed info if the terminal's project is collapsed
+            const projectId = ProjectId.makeUnsafe(event.projectId);
+            const terminalState = selectProjectTerminalState(
+              state.terminalStateByProjectId,
+              projectId,
+            );
+            if (!terminalState.terminalCollapsed) {
+              return nextEventState;
+            }
+
+            const key = terminalEventBufferKey(projectId, event.terminalId);
+            const currentInfo = state.terminalCollapsedInfoByKey[key] ?? DEFAULT_COLLAPSED_INFO;
+            const nextInfo = updateCollapsedInfoForEvent(currentInfo, event);
+            if (nextInfo === currentInfo) {
+              return nextEventState;
+            }
+
+            return {
+              ...nextEventState,
+              terminalCollapsedInfoByKey: {
+                ...state.terminalCollapsedInfoByKey,
+                [key]: nextInfo,
+              },
+            };
+          }),
         applyTerminalEvent: (event) =>
           set((state) => {
-            const threadId = ThreadId.makeUnsafe(event.threadId);
-            let nextTerminalStateByThreadId = state.terminalStateByThreadId;
-            let nextTerminalLaunchContextByThreadId = state.terminalLaunchContextByThreadId;
+            const projectId = ProjectId.makeUnsafe(event.projectId);
+            let nextTerminalStateByProjectId = state.terminalStateByProjectId;
+            let nextTerminalLaunchContextByProjectId = state.terminalLaunchContextByProjectId;
 
             if (event.type === "started" || event.type === "restarted") {
-              nextTerminalStateByThreadId = updateTerminalStateByThreadId(
-                nextTerminalStateByThreadId,
-                threadId,
+              nextTerminalStateByProjectId = updateTerminalStateByProjectId(
+                nextTerminalStateByProjectId,
+                projectId,
                 (current) => {
                   let nextState = current;
                   if (!current.terminalIds.includes(event.terminalId)) {
@@ -673,17 +838,17 @@ export const useTerminalStateStore = create<TerminalStateStoreState>()(
                   return normalizeThreadTerminalState(nextState);
                 },
               );
-              nextTerminalLaunchContextByThreadId = {
-                ...nextTerminalLaunchContextByThreadId,
-                [threadId]: launchContextFromStartEvent(event),
+              nextTerminalLaunchContextByProjectId = {
+                ...nextTerminalLaunchContextByProjectId,
+                [projectId]: launchContextFromStartEvent(event),
               };
             }
 
             const hasRunningSubprocess = terminalRunningSubprocessFromEvent(event);
             if (hasRunningSubprocess !== null) {
-              nextTerminalStateByThreadId = updateTerminalStateByThreadId(
-                nextTerminalStateByThreadId,
-                threadId,
+              nextTerminalStateByProjectId = updateTerminalStateByProjectId(
+                nextTerminalStateByProjectId,
+                projectId,
                 (current) =>
                   setThreadTerminalActivity(current, event.terminalId, hasRunningSubprocess),
               );
@@ -695,51 +860,69 @@ export const useTerminalStateStore = create<TerminalStateStoreState>()(
               event,
             );
 
+            // Update collapsed info if the project is collapsed
+            const terminalState = selectProjectTerminalState(
+              nextTerminalStateByProjectId,
+              projectId,
+            );
+            let nextCollapsedInfoByKey = state.terminalCollapsedInfoByKey;
+            if (terminalState.terminalCollapsed) {
+              const key = terminalEventBufferKey(projectId, event.terminalId);
+              const currentInfo = nextCollapsedInfoByKey[key] ?? DEFAULT_COLLAPSED_INFO;
+              const nextInfo = updateCollapsedInfoForEvent(currentInfo, event);
+              if (nextInfo !== currentInfo) {
+                nextCollapsedInfoByKey = { ...nextCollapsedInfoByKey, [key]: nextInfo };
+              }
+            }
+
             return {
-              terminalStateByThreadId: nextTerminalStateByThreadId,
-              terminalLaunchContextByThreadId: nextTerminalLaunchContextByThreadId,
+              terminalStateByProjectId: nextTerminalStateByProjectId,
+              terminalLaunchContextByProjectId: nextTerminalLaunchContextByProjectId,
+              terminalCollapsedInfoByKey: nextCollapsedInfoByKey,
               ...nextEventState,
             };
           }),
-        clearTerminalState: (threadId) =>
+        clearTerminalState: (projectId) =>
           set((state) => {
-            const nextTerminalStateByThreadId = updateTerminalStateByThreadId(
-              state.terminalStateByThreadId,
-              threadId,
+            const nextTerminalStateByProjectId = updateTerminalStateByProjectId(
+              state.terminalStateByProjectId,
+              projectId,
               () => createDefaultThreadTerminalState(),
             );
-            const hadLaunchContext = state.terminalLaunchContextByThreadId[threadId] !== undefined;
-            const { [threadId]: _removed, ...remainingLaunchContexts } =
-              state.terminalLaunchContextByThreadId;
+            const hadLaunchContext =
+              state.terminalLaunchContextByProjectId[projectId] !== undefined;
+            const { [projectId]: _removed, ...remainingLaunchContexts } =
+              state.terminalLaunchContextByProjectId;
             const nextTerminalEventEntriesByKey = { ...state.terminalEventEntriesByKey };
             let removedEventEntries = false;
             for (const key of Object.keys(nextTerminalEventEntriesByKey)) {
-              if (key.startsWith(`${threadId}\u0000`)) {
+              if (key.startsWith(`${projectId}\u0000`)) {
                 delete nextTerminalEventEntriesByKey[key];
                 removedEventEntries = true;
               }
             }
             if (
-              nextTerminalStateByThreadId === state.terminalStateByThreadId &&
+              nextTerminalStateByProjectId === state.terminalStateByProjectId &&
               !hadLaunchContext &&
               !removedEventEntries
             ) {
               return state;
             }
             return {
-              terminalStateByThreadId: nextTerminalStateByThreadId,
-              terminalLaunchContextByThreadId: remainingLaunchContexts,
+              terminalStateByProjectId: nextTerminalStateByProjectId,
+              terminalLaunchContextByProjectId: remainingLaunchContexts,
               terminalEventEntriesByKey: nextTerminalEventEntriesByKey,
             };
           }),
-        removeTerminalState: (threadId) =>
+        removeTerminalState: (projectId) =>
           set((state) => {
-            const hadTerminalState = state.terminalStateByThreadId[threadId] !== undefined;
-            const hadLaunchContext = state.terminalLaunchContextByThreadId[threadId] !== undefined;
+            const hadTerminalState = state.terminalStateByProjectId[projectId] !== undefined;
+            const hadLaunchContext =
+              state.terminalLaunchContextByProjectId[projectId] !== undefined;
             const nextTerminalEventEntriesByKey = { ...state.terminalEventEntriesByKey };
             let removedEventEntries = false;
             for (const key of Object.keys(nextTerminalEventEntriesByKey)) {
-              if (key.startsWith(`${threadId}\u0000`)) {
+              if (key.startsWith(`${projectId}\u0000`)) {
                 delete nextTerminalEventEntriesByKey[key];
                 removedEventEntries = true;
               }
@@ -747,29 +930,29 @@ export const useTerminalStateStore = create<TerminalStateStoreState>()(
             if (!hadTerminalState && !hadLaunchContext && !removedEventEntries) {
               return state;
             }
-            const nextTerminalStateByThreadId = { ...state.terminalStateByThreadId };
-            delete nextTerminalStateByThreadId[threadId];
-            const nextLaunchContexts = { ...state.terminalLaunchContextByThreadId };
-            delete nextLaunchContexts[threadId];
+            const nextTerminalStateByProjectId = { ...state.terminalStateByProjectId };
+            delete nextTerminalStateByProjectId[projectId];
+            const nextLaunchContexts = { ...state.terminalLaunchContextByProjectId };
+            delete nextLaunchContexts[projectId];
             return {
-              terminalStateByThreadId: nextTerminalStateByThreadId,
-              terminalLaunchContextByThreadId: nextLaunchContexts,
+              terminalStateByProjectId: nextTerminalStateByProjectId,
+              terminalLaunchContextByProjectId: nextLaunchContexts,
               terminalEventEntriesByKey: nextTerminalEventEntriesByKey,
             };
           }),
-        removeOrphanedTerminalStates: (activeThreadIds) =>
+        removeOrphanedTerminalStates: (activeProjectIds) =>
           set((state) => {
-            const orphanedIds = Object.keys(state.terminalStateByThreadId).filter(
-              (id) => !activeThreadIds.has(id as ThreadId),
+            const orphanedIds = Object.keys(state.terminalStateByProjectId).filter(
+              (id) => !activeProjectIds.has(id as ProjectId),
             );
             const orphanedLaunchContextIds = Object.keys(
-              state.terminalLaunchContextByThreadId,
-            ).filter((id) => !activeThreadIds.has(id as ThreadId));
+              state.terminalLaunchContextByProjectId,
+            ).filter((id) => !activeProjectIds.has(id as ProjectId));
             const nextTerminalEventEntriesByKey = { ...state.terminalEventEntriesByKey };
             let removedEventEntries = false;
             for (const key of Object.keys(nextTerminalEventEntriesByKey)) {
-              const [threadId] = key.split("\u0000");
-              if (threadId && !activeThreadIds.has(threadId as ThreadId)) {
+              const [projectId] = key.split("\u0000");
+              if (projectId && !activeProjectIds.has(projectId as ProjectId)) {
                 delete nextTerminalEventEntriesByKey[key];
                 removedEventEntries = true;
               }
@@ -781,17 +964,17 @@ export const useTerminalStateStore = create<TerminalStateStoreState>()(
             ) {
               return state;
             }
-            const next = { ...state.terminalStateByThreadId };
+            const next = { ...state.terminalStateByProjectId };
             for (const id of orphanedIds) {
-              delete next[id as ThreadId];
+              delete next[id as ProjectId];
             }
-            const nextLaunchContexts = { ...state.terminalLaunchContextByThreadId };
+            const nextLaunchContexts = { ...state.terminalLaunchContextByProjectId };
             for (const id of orphanedLaunchContextIds) {
-              delete nextLaunchContexts[id as ThreadId];
+              delete nextLaunchContexts[id as ProjectId];
             }
             return {
-              terminalStateByThreadId: next,
-              terminalLaunchContextByThreadId: nextLaunchContexts,
+              terminalStateByProjectId: next,
+              terminalLaunchContextByProjectId: nextLaunchContexts,
               terminalEventEntriesByKey: nextTerminalEventEntriesByKey,
             };
           }),
@@ -799,10 +982,16 @@ export const useTerminalStateStore = create<TerminalStateStoreState>()(
     },
     {
       name: TERMINAL_STATE_STORAGE_KEY,
-      version: 1,
+      version: 2,
       storage: createJSONStorage(createTerminalStateStorage),
+      migrate: (persistedState, version) => {
+        if (version < 2) {
+          return { terminalStateByProjectId: {}, terminalLaunchContextByProjectId: {} };
+        }
+        return persistedState;
+      },
       partialize: (state) => ({
-        terminalStateByThreadId: state.terminalStateByThreadId,
+        terminalStateByProjectId: state.terminalStateByProjectId,
       }),
     },
   ),

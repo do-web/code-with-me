@@ -66,7 +66,7 @@ export interface ComposerImageAttachment extends Omit<ChatImageAttachment, "prev
 
 const PersistedTerminalContextDraft = Schema.Struct({
   id: Schema.String,
-  threadId: ThreadId,
+  projectId: ProjectId,
   createdAt: Schema.String,
   terminalId: Schema.String,
   terminalLabel: Schema.String,
@@ -346,8 +346,7 @@ function terminalContextDedupKey(context: TerminalContextDraft): string {
   return `${context.terminalId}\u0000${context.lineStart}\u0000${context.lineEnd}`;
 }
 
-function normalizeTerminalContextForThread(
-  threadId: ThreadId,
+function normalizeTerminalContextForDraft(
   context: TerminalContextDraft,
 ): TerminalContextDraft | null {
   const terminalId = context.terminalId.trim();
@@ -359,7 +358,6 @@ function normalizeTerminalContextForThread(
   const lineEnd = Math.max(lineStart, Math.floor(context.lineEnd));
   return {
     ...context,
-    threadId,
     terminalId,
     terminalLabel,
     lineStart,
@@ -368,8 +366,7 @@ function normalizeTerminalContextForThread(
   };
 }
 
-function normalizeTerminalContextsForThread(
-  threadId: ThreadId,
+function normalizeTerminalContextsForDraft(
   contexts: ReadonlyArray<TerminalContextDraft>,
 ): TerminalContextDraft[] {
   const existingIds = new Set<string>();
@@ -377,7 +374,7 @@ function normalizeTerminalContextsForThread(
   const normalizedContexts: TerminalContextDraft[] = [];
 
   for (const context of contexts) {
-    const normalizedContext = normalizeTerminalContextForThread(threadId, context);
+    const normalizedContext = normalizeTerminalContextForDraft(context);
     if (!normalizedContext) {
       continue;
     }
@@ -407,7 +404,7 @@ function shouldRemoveDraft(draft: ComposerThreadDraftState): boolean {
 }
 
 function normalizeProviderKind(value: unknown): ProviderKind | null {
-  return value === "codex" || value === "claudeAgent" ? value : null;
+  return value === "codex" || value === "claudeAgent" || value === "gemini" ? value : null;
 }
 
 function normalizeProviderModelOptions(
@@ -594,7 +591,7 @@ function legacyToModelSelectionByProvider(
   const result: Partial<Record<ProviderKind, ModelSelection>> = {};
   // Add entries from the options bag (for non-active providers)
   if (modelOptions) {
-    for (const provider of ["codex", "claudeAgent"] as const) {
+    for (const provider of ["codex", "claudeAgent", "gemini"] as const) {
       const options = modelOptions[provider];
       if (options && Object.keys(options).length > 0) {
         result[provider] = {
@@ -701,15 +698,15 @@ function normalizePersistedTerminalContextDraft(
   }
   const candidate = value as Record<string, unknown>;
   const id = candidate.id;
-  const threadId = candidate.threadId;
+  const projectId = candidate.projectId;
   const createdAt = candidate.createdAt;
   const lineStart = candidate.lineStart;
   const lineEnd = candidate.lineEnd;
   if (
     typeof id !== "string" ||
     id.length === 0 ||
-    typeof threadId !== "string" ||
-    threadId.length === 0 ||
+    typeof projectId !== "string" ||
+    projectId.length === 0 ||
     typeof createdAt !== "string" ||
     createdAt.length === 0 ||
     typeof lineStart !== "number" ||
@@ -729,7 +726,7 @@ function normalizePersistedTerminalContextDraft(
   const normalizedLineEnd = Math.max(normalizedLineStart, Math.floor(lineEnd));
   return {
     id,
-    threadId: threadId as ThreadId,
+    projectId: projectId as ProjectId,
     createdAt,
     terminalId,
     terminalLabel,
@@ -1023,7 +1020,7 @@ function partializeComposerDraftStoreState(
         ? {
             terminalContexts: draft.terminalContexts.map((context) => ({
               id: context.id,
-              threadId: context.threadId,
+              projectId: context.projectId,
               createdAt: context.createdAt,
               terminalId: context.terminalId,
               terminalLabel: context.terminalLabel,
@@ -1597,7 +1594,7 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
         if (threadId.length === 0) {
           return;
         }
-        const normalizedContexts = normalizeTerminalContextsForThread(threadId, contexts);
+        const normalizedContexts = normalizeTerminalContextsForDraft(contexts);
         set((state) => {
           const existing = state.draftsByThreadId[threadId] ?? createEmptyThreadDraft();
           const nextDraft: ComposerThreadDraftState = {
@@ -1676,7 +1673,7 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
           }
           const base = existing ?? createEmptyThreadDraft();
           const nextMap = { ...base.modelSelectionByProvider };
-          for (const provider of ["codex", "claudeAgent"] as const) {
+          for (const provider of ["codex", "claudeAgent", "gemini"] as const) {
             // Only touch providers explicitly present in the input
             if (!normalizedOpts || !(provider in normalizedOpts)) continue;
             const opts = normalizedOpts[provider];
@@ -1940,7 +1937,7 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
         let inserted = false;
         set((state) => {
           const existing = state.draftsByThreadId[threadId] ?? createEmptyThreadDraft();
-          const normalizedContext = normalizeTerminalContextForThread(threadId, context);
+          const normalizedContext = normalizeTerminalContextForDraft(context);
           if (!normalizedContext) {
             return state;
           }
@@ -1983,7 +1980,7 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
         }
         set((state) => {
           const existing = state.draftsByThreadId[threadId] ?? createEmptyThreadDraft();
-          const acceptedContexts = normalizeTerminalContextsForThread(threadId, [
+          const acceptedContexts = normalizeTerminalContextsForDraft([
             ...existing.terminalContexts,
             ...contexts,
           ]).slice(existing.terminalContexts.length);

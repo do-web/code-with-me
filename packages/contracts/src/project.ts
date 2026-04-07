@@ -53,3 +53,33 @@ export class ProjectWriteFileError extends Schema.TaggedErrorClass<ProjectWriteF
     cause: Schema.optional(Schema.Defect),
   },
 ) {}
+
+// --- Package scripts ---
+
+export const PackageManagerId = Schema.Literals(["npm", "bun", "yarn", "pnpm"]);
+export type PackageManagerId = typeof PackageManagerId.Type;
+
+export const PackageScriptEntry = Schema.Struct({
+  name: TrimmedNonEmptyString,
+  command: Schema.String,
+});
+export type PackageScriptEntry = typeof PackageScriptEntry.Type;
+
+export const ProjectReadPackageScriptsInput = Schema.Struct({
+  cwd: TrimmedNonEmptyString,
+});
+export type ProjectReadPackageScriptsInput = typeof ProjectReadPackageScriptsInput.Type;
+
+export const ProjectReadPackageScriptsResult = Schema.Struct({
+  scripts: Schema.Array(PackageScriptEntry),
+  packageManager: PackageManagerId,
+});
+export type ProjectReadPackageScriptsResult = typeof ProjectReadPackageScriptsResult.Type;
+
+export class ProjectReadPackageScriptsError extends Schema.TaggedErrorClass<ProjectReadPackageScriptsError>()(
+  "ProjectReadPackageScriptsError",
+  {
+    message: TrimmedNonEmptyString,
+    cause: Schema.optional(Schema.Defect),
+  },
+) {}

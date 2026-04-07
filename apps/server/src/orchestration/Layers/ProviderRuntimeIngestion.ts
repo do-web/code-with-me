@@ -18,12 +18,8 @@ import { makeDrainableWorker } from "@codewithme/shared/DrainableWorker";
 
 import { ProviderService } from "../../provider/Services/ProviderService.ts";
 import { ProviderAccountStatsService } from "../../provider/Services/ProviderAccountStats.ts";
-import { probeClaudeUsage } from "../../provider/claudeUsageProbe.ts";
 import type { ProviderQuota } from "@codewithme/contracts";
-import {
-  normalizeClaudeRateLimits,
-  normalizeCodexRateLimits,
-} from "../../provider/providerAccountStatsNormalization.ts";
+import { normalizeCodexRateLimits } from "../../provider/providerAccountStatsNormalization.ts";
 import { ProjectionTurnRepository } from "../../persistence/Services/ProjectionTurns.ts";
 import { ProjectionTurnRepositoryLive } from "../../persistence/Layers/ProjectionTurns.ts";
 import { resolveThreadWorkspaceCwd } from "../../checkpointing/Utils.ts";
@@ -965,15 +961,29 @@ const make = Effect.fn("make")(function* () {
             return activeTurnId !== null ? "running" : "ready";
         }
       })();
+      const sanitizeLastError = (value: unknown): string | null => {
+        if (value === null || value === undefined) return null;
+        if (typeof value === "string") return value;
+        if (value instanceof Error) return value.message;
+        try {
+          return JSON.stringify(value);
+        } catch {
+          return String(value);
+        }
+      };
       const lastError =
         event.type === "session.state.changed" && event.payload.state === "error"
-          ? (event.payload.reason ?? thread.session?.lastError ?? "Provider session error")
+          ? sanitizeLastError(
+              event.payload.reason ?? thread.session?.lastError ?? "Provider session error",
+            )
           : event.type === "turn.completed" &&
               normalizeRuntimeTurnState(event.payload.state) === "failed"
-            ? (event.payload.errorMessage ?? thread.session?.lastError ?? "Turn failed")
+            ? sanitizeLastError(
+                event.payload.errorMessage ?? thread.session?.lastError ?? "Turn failed",
+              )
             : status === "ready"
               ? null
-              : (thread.session?.lastError ?? null);
+              : sanitizeLastError(thread.session?.lastError ?? null);
 
       if (shouldApplyThreadLifecycle) {
         if (event.type === "turn.started" && acceptedTurnStartedSourcePlan !== null) {
@@ -1168,6 +1178,9 @@ const make = Effect.fn("make")(function* () {
             (sessionTokensByProvider[event.provider] ?? 0) + totalTokens;
         }
       }
+
+      // Usage stats are refreshed via 5-minute polling in serverRuntimeStartup.
+      // No per-turn probing — Claude CLI has a hard rate limit on /usage.
     }
 
     if (event.type === "session.exited") {
@@ -1247,43 +1260,8 @@ const make = Effect.fn("make")(function* () {
       const provider = event.provider;
 
       if (provider === "claudeAgent") {
-        // Fire CLI probe in background — non-blocking, gets real Session/Weekly/Sonnet data
-        yield* Effect.logInfo("[usage-probe] starting CLI probe for Claude");
-        yield* Effect.forkScoped(
-          Effect.gen(function* () {
-            yield* Effect.logInfo("[usage-probe] forked task running");
-            const settings = yield* serverSettingsService.getSettings;
-            const binary = settings.providers.claudeAgent.binaryPath || "claude";
-            yield* Effect.logInfo("[usage-probe] calling probeClaudeUsage", { binary });
-            const cliQuotas = yield* probeClaudeUsage(binary);
-            yield* Effect.logInfo("[usage-probe] probe returned", {
-              count: cliQuotas.length,
-              quotas: JSON.stringify(cliQuotas),
-            });
-            if (cliQuotas.length > 0) {
-              const existing = latestQuotasByProvider[provider] ?? {};
-              for (const quota of cliQuotas) {
-                existing[quota.name] = quota;
-              }
-              latestQuotasByProvider[provider] = existing;
-              const latest = yield* providerAccountStats.getLatest(provider);
-              yield* providerAccountStats.publish({
-                provider,
-                plan: latest?.plan,
-                email: latest?.email,
-                quotas: Object.values(existing),
-                sessionCostUsd: sessionCostByProvider[provider],
-                sessionTokensTotal: sessionTokensByProvider[provider],
-                updatedAt: new Date().toISOString(),
-              });
-              yield* Effect.logInfo("[usage-probe] published stats", {
-                quotaNames: Object.keys(existing),
-              });
-            } else {
-              yield* Effect.logWarning("[usage-probe] probe returned 0 quotas");
-            }
-          }).pipe(Effect.ignoreCause({ log: true })),
-        );
+        // Claude usage is refreshed via 5-minute polling only (CLI rate limit).
+        // No action needed here.
       } else {
         // Codex: use SDK normalization directly
         const rawLimits = (event.payload as { rateLimits?: unknown }).rateLimits;

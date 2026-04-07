@@ -1,6 +1,6 @@
 {
   "name": "@codewithme/shared",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
   "type": "module",
   "exports": {
@@ -51,6 +51,10 @@
     "./projectScripts": {
       "types": "./src/projectScripts.ts",
       "import": "./src/projectScripts.ts"
+    },
+    "./ansi": {
+      "types": "./src/ansi.ts",
+      "import": "./src/ansi.ts"
     }
   },
   "scripts": {

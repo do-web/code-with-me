@@ -1,9 +1,17 @@
 import { FitAddon } from "@xterm/addon-fit";
-import { Plus, SquareSplitHorizontal, TerminalSquare, Trash2, XIcon } from "lucide-react";
 import {
+  ChevronDown,
+  Plus,
+  SquareSplitHorizontal,
+  TerminalSquare,
+  Trash2,
+  XIcon,
+} from "lucide-react";
+import { CollapsedTerminalBar } from "./CollapsedTerminalBar";
+import {
+  type ProjectId,
   type TerminalEvent,
   type TerminalSessionSnapshot,
-  type ThreadId,
 } from "@codewithme/contracts";
 import { Terminal, type ITheme } from "@xterm/xterm";
 import {
@@ -32,11 +40,17 @@ import {
   type ThreadTerminalGroup,
 } from "../types";
 import { readNativeApi } from "~/nativeApi";
-import { selectTerminalEventEntries, useTerminalStateStore } from "../terminalStateStore";
+import {
+  type TerminalCollapsedInfo,
+  selectTerminalEventEntries,
+  useTerminalStateStore,
+} from "../terminalStateStore";
 
 const MIN_DRAWER_HEIGHT = 180;
 const MAX_DRAWER_HEIGHT_RATIO = 0.75;
 const MULTI_CLICK_SELECTION_ACTION_DELAY_MS = 260;
+const MIN_TERMINAL_COLS = 20;
+const MIN_TERMINAL_ROWS = 5;
 
 function maxDrawerHeight(): number {
   if (typeof window === "undefined") return DEFAULT_THREAD_TERMINAL_HEIGHT;
@@ -208,7 +222,7 @@ export function shouldHandleTerminalSelectionMouseUp(
 }
 
 interface TerminalViewportProps {
-  threadId: ThreadId;
+  projectId: ProjectId;
   terminalId: string;
   terminalLabel: string;
   cwd: string;
@@ -223,7 +237,7 @@ interface TerminalViewportProps {
 }
 
 function TerminalViewport({
-  threadId,
+  projectId,
   terminalId,
   terminalLabel,
   cwd,
@@ -359,7 +373,7 @@ function TerminalViewport({
       const activeTerminal = terminalRef.current;
       if (!activeTerminal) return;
       try {
-        await api.terminal.write({ threadId, terminalId, data });
+        await api.terminal.write({ projectId, terminalId, data });
       } catch (error) {
         writeSystemMessage(activeTerminal, error instanceof Error ? error.message : fallbackError);
       }
@@ -440,7 +454,7 @@ function TerminalViewport({
 
     const inputDisposable = terminal.onData((data) => {
       void api.terminal
-        .write({ threadId, terminalId, data })
+        .write({ projectId, terminalId, data })
         .catch((err) =>
           writeSystemMessage(
             terminal,
@@ -573,12 +587,12 @@ function TerminalViewport({
       const previousLastEntryId =
         selectTerminalEventEntries(
           previousState.terminalEventEntriesByKey,
-          threadId,
+          projectId,
           terminalId,
         ).at(-1)?.id ?? 0;
       const nextEntries = selectTerminalEventEntries(
         state.terminalEventEntriesByKey,
-        threadId,
+        projectId,
         terminalId,
       );
       const nextLastEntryId = nextEntries.at(-1)?.id ?? 0;
@@ -596,7 +610,7 @@ function TerminalViewport({
         if (!activeTerminal || !activeFitAddon) return;
         activeFitAddon.fit();
         const snapshot = await api.terminal.open({
-          threadId,
+          projectId,
           terminalId,
           cwd,
           ...(worktreePath !== undefined ? { worktreePath } : {}),
@@ -608,7 +622,7 @@ function TerminalViewport({
         writeTerminalSnapshot(activeTerminal, snapshot);
         const bufferedEntries = selectTerminalEventEntries(
           useTerminalStateStore.getState().terminalEventEntriesByKey,
-          threadId,
+          projectId,
           terminalId,
         );
         const replayEntries = selectTerminalEventEntriesAfterSnapshot(
@@ -644,14 +658,9 @@ function TerminalViewport({
       if (wasAtBottom) {
         activeTerminal.scrollToBottom();
       }
-      void api.terminal
-        .resize({
-          threadId,
-          terminalId,
-          cols: activeTerminal.cols,
-          rows: activeTerminal.rows,
-        })
-        .catch(() => undefined);
+      const cols = Math.max(activeTerminal.cols, MIN_TERMINAL_COLS);
+      const rows = Math.max(activeTerminal.rows, MIN_TERMINAL_ROWS);
+      void api.terminal.resize({ projectId, terminalId, cols, rows }).catch(() => undefined);
     }, 30);
     void openTerminal();
 
@@ -677,7 +686,7 @@ function TerminalViewport({
     // autoFocus is intentionally omitted;
     // it is only read at mount time and must not trigger terminal teardown/recreation.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cwd, runtimeEnv, terminalId, threadId]);
+  }, [cwd, runtimeEnv, terminalId, projectId]);
 
   useEffect(() => {
     if (!autoFocus) return;
@@ -702,30 +711,28 @@ function TerminalViewport({
       if (wasAtBottom) {
         terminal.scrollToBottom();
       }
-      void api.terminal
-        .resize({
-          threadId,
-          terminalId,
-          cols: terminal.cols,
-          rows: terminal.rows,
-        })
-        .catch(() => undefined);
+      const cols = Math.max(terminal.cols, MIN_TERMINAL_COLS);
+      const rows = Math.max(terminal.rows, MIN_TERMINAL_ROWS);
+      void api.terminal.resize({ projectId, terminalId, cols, rows }).catch(() => undefined);
     });
     return () => {
       window.cancelAnimationFrame(frame);
     };
-  }, [drawerHeight, resizeEpoch, terminalId, threadId]);
+  }, [drawerHeight, resizeEpoch, terminalId, projectId]);
   return (
     <div ref={containerRef} className="relative h-full w-full overflow-hidden rounded-[4px]" />
   );
 }
 
 interface ThreadTerminalDrawerProps {
-  threadId: ThreadId;
+  projectId: ProjectId;
   cwd: string;
   worktreePath?: string | null;
   runtimeEnv?: Record<string, string>;
   visible?: boolean;
+  collapsed?: boolean;
+  collapsedInfo?: TerminalCollapsedInfo;
+  onToggleCollapsed?: () => void;
   height: number;
   terminalIds: string[];
   activeTerminalId: string;
@@ -772,12 +779,17 @@ function TerminalActionButton({ label, className, onClick, children }: TerminalA
   );
 }
 
+const COLLAPSED_BAR_HEIGHT = 36;
+
 export default function ThreadTerminalDrawer({
-  threadId,
+  projectId,
   cwd,
   worktreePath,
   runtimeEnv,
   visible = true,
+  collapsed = false,
+  collapsedInfo,
+  onToggleCollapsed,
   height,
   terminalIds,
   activeTerminalId,
@@ -945,7 +957,7 @@ export default function ThreadTerminalDrawer({
     setDrawerHeight(clampedHeight);
     drawerHeightRef.current = clampedHeight;
     lastSyncedHeightRef.current = clampedHeight;
-  }, [height, threadId]);
+  }, [height, projectId]);
 
   const handleResizePointerDown = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
     if (event.button !== 0) return;
@@ -1027,20 +1039,49 @@ export default function ThreadTerminalDrawer({
     };
   }, [syncHeight]);
 
+  const handleTransitionEnd = useCallback(() => {
+    if (!collapsed) {
+      setResizeEpoch((value) => value + 1);
+    }
+  }, [collapsed]);
+
   return (
     <aside
-      className="thread-terminal-drawer relative flex min-w-0 shrink-0 flex-col overflow-hidden border-t border-border/80 bg-background"
-      style={{ height: `${drawerHeight}px` }}
+      className="thread-terminal-drawer relative flex min-w-0 shrink-0 flex-col overflow-hidden border-t border-border/80 bg-background transition-[height] duration-200 ease-out"
+      style={{ height: collapsed ? `${COLLAPSED_BAR_HEIGHT}px` : `${drawerHeight}px` }}
+      onTransitionEnd={handleTransitionEnd}
     >
-      <div
-        className="absolute inset-x-0 top-0 z-20 h-1.5 cursor-row-resize"
-        onPointerDown={handleResizePointerDown}
-        onPointerMove={handleResizePointerMove}
-        onPointerUp={handleResizePointerEnd}
-        onPointerCancel={handleResizePointerEnd}
-      />
+      {collapsed ? (
+        <CollapsedTerminalBar
+          lastMessage={collapsedInfo?.lastMessage ?? ""}
+          warningCount={collapsedInfo?.warningCount ?? 0}
+          errorCount={collapsedInfo?.errorCount ?? 0}
+          onExpand={() => onToggleCollapsed?.()}
+        />
+      ) : null}
 
-      {!hasTerminalSidebar && (
+      {!collapsed && (
+        <div className="relative z-20 flex h-5 shrink-0 items-center justify-center">
+          <div
+            className="absolute inset-0 cursor-row-resize"
+            onPointerDown={handleResizePointerDown}
+            onPointerMove={handleResizePointerMove}
+            onPointerUp={handleResizePointerEnd}
+            onPointerCancel={handleResizePointerEnd}
+          />
+          {onToggleCollapsed && (
+            <button
+              className="relative z-10 flex items-center rounded px-2 py-0.5 text-muted-foreground/60 transition-colors hover:bg-accent hover:text-foreground"
+              onClick={onToggleCollapsed}
+              aria-label="Collapse Terminal"
+            >
+              <ChevronDown className="size-3.5" />
+            </button>
+          )}
+        </div>
+      )}
+
+      {!collapsed && !hasTerminalSidebar && (
         <div className="pointer-events-none absolute right-2 top-2 z-20">
           <div className="pointer-events-auto inline-flex items-center overflow-hidden rounded-md border border-border/80 bg-background/70">
             <TerminalActionButton
@@ -1098,7 +1139,7 @@ export default function ThreadTerminalDrawer({
                   >
                     <div className="h-full p-1">
                       <TerminalViewport
-                        threadId={threadId}
+                        projectId={projectId}
                         terminalId={terminalId}
                         terminalLabel={terminalLabelById.get(terminalId) ?? "Terminal"}
                         cwd={cwd}
@@ -1119,7 +1160,7 @@ export default function ThreadTerminalDrawer({
               <div className="h-full p-1">
                 <TerminalViewport
                   key={resolvedActiveTerminalId}
-                  threadId={threadId}
+                  projectId={projectId}
                   terminalId={resolvedActiveTerminalId}
                   terminalLabel={terminalLabelById.get(resolvedActiveTerminalId) ?? "Terminal"}
                   cwd={cwd}
@@ -1136,7 +1177,7 @@ export default function ThreadTerminalDrawer({
             )}
           </div>
 
-          {hasTerminalSidebar && (
+          {!collapsed && hasTerminalSidebar && (
             <aside className="flex w-36 min-w-36 flex-col border border-border/70 bg-muted/10">
               <div className="flex h-[22px] items-stretch justify-end border-b border-border/70">
                 <div className="inline-flex h-full items-stretch">

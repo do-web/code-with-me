@@ -12,6 +12,7 @@ import {
   OrchestrationGetTurnDiffError,
   ORCHESTRATION_WS_METHODS,
   type ProviderAccountStatsEvent,
+  ProjectReadPackageScriptsError,
   ProjectSearchEntriesError,
   ProjectWriteFileError,
   OrchestrationReplayEventsError,
@@ -48,6 +49,7 @@ import { TerminalManager } from "./terminal/Services/Manager";
 import { WorkspaceEntries } from "./workspace/Services/WorkspaceEntries";
 import { WorkspaceFileSystem } from "./workspace/Services/WorkspaceFileSystem";
 import { WorkspacePathOutsideRootError } from "./workspace/Services/WorkspacePaths";
+import { readPackageScripts } from "./project/readPackageScripts";
 import { ProjectSetupScriptRunner } from "./project/Services/ProjectSetupScriptRunner";
 import { ProviderAccountStatsService } from "./provider/Services/ProviderAccountStats";
 import { SkillDiscovery } from "./skillDiscovery";
@@ -375,18 +377,7 @@ const WsRpcLayer = WsRpcGroup.toLayer(
           ORCHESTRATION_WS_METHODS.dispatchCommand,
           Effect.gen(function* () {
             const normalizedCommand = yield* normalizeDispatchCommand(command);
-            const result = yield* dispatchNormalizedCommand(normalizedCommand);
-            if (normalizedCommand.type === "thread.archive") {
-              yield* terminalManager.close({ threadId: normalizedCommand.threadId }).pipe(
-                Effect.catch((error) =>
-                  Effect.logWarning("failed to close thread terminals after archive", {
-                    threadId: normalizedCommand.threadId,
-                    error: error.message,
-                  }),
-                ),
-              );
-            }
-            return result;
+            return yield* dispatchNormalizedCommand(normalizedCommand);
           }).pipe(
             Effect.mapError((cause) =>
               Schema.is(OrchestrationDispatchCommandError)(cause)
@@ -583,6 +574,20 @@ const WsRpcLayer = WsRpcGroup.toLayer(
                 cause,
               });
             }),
+          ),
+          { "rpc.aggregate": "workspace" },
+        ),
+      [WS_METHODS.projectsReadPackageScripts]: (input) =>
+        observeRpcEffect(
+          WS_METHODS.projectsReadPackageScripts,
+          readPackageScripts(input).pipe(
+            Effect.mapError(
+              (cause) =>
+                new ProjectReadPackageScriptsError({
+                  message: cause.message,
+                  cause,
+                }),
+            ),
           ),
           { "rpc.aggregate": "workspace" },
         ),

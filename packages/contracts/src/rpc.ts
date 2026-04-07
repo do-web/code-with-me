@@ -46,6 +46,9 @@ import {
   OrchestrationRpcSchemas,
 } from "./orchestration";
 import {
+  ProjectReadPackageScriptsError,
+  ProjectReadPackageScriptsInput,
+  ProjectReadPackageScriptsResult,
   ProjectSearchEntriesError,
   ProjectSearchEntriesInput,
   ProjectSearchEntriesResult,
@@ -83,6 +86,7 @@ export const WS_METHODS = {
   projectsRemove: "projects.remove",
   projectsSearchEntries: "projects.searchEntries",
   projectsWriteFile: "projects.writeFile",
+  projectsReadPackageScripts: "projects.readPackageScripts",
 
   // Shell methods
   shellOpenInEditor: "shell.openInEditor",
@@ -180,6 +184,12 @@ export const WsProjectsWriteFileRpc = Rpc.make(WS_METHODS.projectsWriteFile, {
   payload: ProjectWriteFileInput,
   success: ProjectWriteFileResult,
   error: ProjectWriteFileError,
+});
+
+export const WsProjectsReadPackageScriptsRpc = Rpc.make(WS_METHODS.projectsReadPackageScripts, {
+  payload: ProjectReadPackageScriptsInput,
+  success: ProjectReadPackageScriptsResult,
+  error: ProjectReadPackageScriptsError,
 });
 
 export const WsShellOpenInEditorRpc = Rpc.make(WS_METHODS.shellOpenInEditor, {
@@ -377,6 +387,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsSkillsRefreshRpc,
   WsProjectsSearchEntriesRpc,
   WsProjectsWriteFileRpc,
+  WsProjectsReadPackageScriptsRpc,
   WsShellOpenInEditorRpc,
   WsGitStatusRpc,
   WsGitPullRpc,

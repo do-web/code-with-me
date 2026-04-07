@@ -194,7 +194,7 @@ function createTerminalContext(input: {
 }): TerminalContextDraft {
   return {
     id: input.id,
-    threadId: THREAD_ID,
+    projectId: PROJECT_ID,
     terminalId: `terminal-${input.id}`,
     terminalLabel: input.terminalLabel,
     lineStart: input.lineStart,
@@ -1158,8 +1158,8 @@ describe("ChatView timeline estimator parity (full app)", () => {
     });
     useTerminalStateStore.persist.clearStorage();
     useTerminalStateStore.setState({
-      terminalStateByThreadId: {},
-      terminalLaunchContextByThreadId: {},
+      terminalStateByProjectId: {},
+      terminalLaunchContextByProjectId: {},
       terminalEventEntriesByKey: {},
       nextTerminalEventId: 1,
     });
@@ -1400,9 +1400,10 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
 
     useTerminalStateStore.setState({
-      terminalStateByThreadId: {
-        [THREAD_ID]: {
+      terminalStateByProjectId: {
+        [PROJECT_ID]: {
           terminalOpen: true,
+          terminalCollapsed: false,
           terminalHeight: 280,
           terminalIds: ["default"],
           runningTerminalIds: [],
@@ -1411,8 +1412,8 @@ describe("ChatView timeline estimator parity (full app)", () => {
           activeTerminalGroupId: "group-default",
         },
       },
-      terminalLaunchContextByThreadId: {
-        [THREAD_ID]: {
+      terminalLaunchContextByProjectId: {
+        [PROJECT_ID]: {
           cwd: "/repo/project",
           worktreePath: null,
         },
@@ -1919,7 +1920,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
 
   it("sends bootstrap turn-starts and waits for server setup on first-send worktree drafts", async () => {
     useTerminalStateStore.setState({
-      terminalStateByThreadId: {},
+      terminalStateByProjectId: {},
     });
     useComposerDraftStore.setState({
       draftThreadsByThreadId: {
@@ -2019,7 +2020,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
 
   it("shows the send state once bootstrap dispatch is in flight", async () => {
     useTerminalStateStore.setState({
-      terminalStateByThreadId: {},
+      terminalStateByProjectId: {},
     });
     useComposerDraftStore.setState({
       draftThreadsByThreadId: {

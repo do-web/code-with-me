@@ -4,7 +4,7 @@ import { useEffect } from "react";
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
 import { isTerminalFocused } from "../lib/terminalFocus";
 import { resolveShortcutCommand } from "../keybindings";
-import { selectThreadTerminalState, useTerminalStateStore } from "../terminalStateStore";
+import { selectProjectTerminalState, useTerminalStateStore } from "../terminalStateStore";
 import { useThreadSelectionStore } from "../threadSelectionStore";
 import { resolveSidebarNewThreadEnvMode } from "~/components/Sidebar.logic";
 import { useSettings } from "~/hooks/useSettings";
@@ -16,9 +16,11 @@ function ChatRouteGlobalShortcuts() {
   const { activeDraftThread, activeThread, defaultProjectId, handleNewThread, routeThreadId } =
     useHandleNewThread();
   const keybindings = useServerKeybindings();
+  const terminalProjectId =
+    activeThread?.projectId ?? activeDraftThread?.projectId ?? defaultProjectId;
   const terminalOpen = useTerminalStateStore((state) =>
-    routeThreadId
-      ? selectThreadTerminalState(state.terminalStateByThreadId, routeThreadId).terminalOpen
+    terminalProjectId
+      ? selectProjectTerminalState(state.terminalStateByProjectId, terminalProjectId).terminalOpen
       : false,
   );
   const appSettings = useSettings();

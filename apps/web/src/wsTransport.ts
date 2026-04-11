@@ -8,8 +8,12 @@ import {
 import { RpcClient } from "effect/unstable/rpc";
 import { ClientTracingLive, configureClientTracing } from "./observability/clientTracing";
 
-interface SubscribeOptions {
+export interface SubscribeOptions {
   readonly retryDelay?: Duration.Input;
+  /** Called when the subscription stream errors and a retry will be attempted. */
+  readonly onDisconnect?: () => void;
+  /** Called when the subscription stream resumes after a disconnect (first value received). */
+  readonly onReconnect?: () => void;
 }
 
 interface RequestOptions {
@@ -17,6 +21,14 @@ interface RequestOptions {
 }
 
 const DEFAULT_SUBSCRIPTION_RETRY_DELAY_MS = Duration.millis(250);
+const MAX_BACKOFF_MS = 10_000;
+
+function computeBackoff(baseMs: number, consecutiveFailures: number): Duration.Duration {
+  const delayMs = Math.min(baseMs * 2 ** consecutiveFailures, MAX_BACKOFF_MS);
+  // Add 0-25% jitter to prevent thundering herd
+  const jitter = delayMs * Math.random() * 0.25;
+  return Duration.millis(delayMs + jitter);
+}
 
 function formatErrorMessage(error: unknown): string {
   if (error instanceof Error && error.message.trim().length > 0) {
@@ -89,7 +101,12 @@ export class WsTransport {
     }
 
     let active = true;
-    const retryDelayMs = options?.retryDelay ?? DEFAULT_SUBSCRIPTION_RETRY_DELAY_MS;
+    const baseDelay = options?.retryDelay
+      ? Duration.fromInputUnsafe(options.retryDelay)
+      : DEFAULT_SUBSCRIPTION_RETRY_DELAY_MS;
+    const baseDelayMs = Duration.toMillis(baseDelay);
+    let consecutiveFailures = 0;
+    let wasDisconnected = false;
     const cancel = this.runtime.runCallback(
       Effect.promise(() => this.tracingReady).pipe(
         Effect.flatMap(() => Effect.promise(() => this.clientPromise)),
@@ -98,6 +115,15 @@ export class WsTransport {
             Effect.sync(() => {
               if (!active) {
                 return;
+              }
+              if (wasDisconnected) {
+                wasDisconnected = false;
+                consecutiveFailures = 0;
+                try {
+                  options?.onReconnect?.();
+                } catch {
+                  // Swallow callback errors.
+                }
               }
               try {
                 listener(value);
@@ -111,11 +137,23 @@ export class WsTransport {
           if (!active || this.disposed) {
             return Effect.interrupt;
           }
+          if (!wasDisconnected) {
+            wasDisconnected = true;
+            try {
+              options?.onDisconnect?.();
+            } catch {
+              // Swallow callback errors.
+            }
+          }
+          const backoff = computeBackoff(baseDelayMs, consecutiveFailures);
+          consecutiveFailures++;
           return Effect.sync(() => {
             console.warn("WebSocket RPC subscription disconnected", {
               error: formatErrorMessage(error),
+              attempt: consecutiveFailures,
+              nextRetryMs: Math.round(Duration.toMillis(backoff)),
             });
-          }).pipe(Effect.andThen(Effect.sleep(retryDelayMs)));
+          }).pipe(Effect.andThen(Effect.sleep(backoff)));
         }),
         Effect.forever,
       ),

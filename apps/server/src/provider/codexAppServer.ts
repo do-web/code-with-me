@@ -27,6 +27,8 @@ export function buildCodexInitializeParams() {
   } as const;
 }
 
+const KILL_GRACE_MS = 3_000;
+
 export function killCodexChildProcess(child: ChildProcessWithoutNullStreams): void {
   if (process.platform === "win32" && child.pid !== undefined) {
     try {
@@ -37,7 +39,16 @@ export function killCodexChildProcess(child: ChildProcessWithoutNullStreams): vo
     }
   }
 
-  child.kill();
+  child.kill("SIGTERM");
+
+  // Escalate to SIGKILL if the process doesn't exit within the grace period.
+  // This prevents zombie processes from holding PTY file descriptors open.
+  const killTimer = setTimeout(() => {
+    if (!child.killed) {
+      child.kill("SIGKILL");
+    }
+  }, KILL_GRACE_MS);
+  killTimer.unref();
 }
 
 interface CodexAppServerProbeInput {

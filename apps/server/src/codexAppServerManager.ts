@@ -906,7 +906,12 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     context.pendingApprovals.clear();
     context.pendingUserInputs.clear();
 
+    context.output.removeAllListeners();
     context.output.close();
+
+    context.child.stdout.removeAllListeners();
+    context.child.stderr.removeAllListeners();
+    context.child.removeAllListeners();
 
     if (!context.child.killed) {
       killChildTree(context.child);
@@ -977,6 +982,13 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     });
 
     context.child.on("exit", (code, signal) => {
+      // Clean up all listeners to release process handles and prevent PTY/FD leaks.
+      context.output.removeAllListeners();
+      context.output.close();
+      context.child.stdout.removeAllListeners();
+      context.child.stderr.removeAllListeners();
+      context.child.removeAllListeners();
+
       if (context.stopping) {
         return;
       }

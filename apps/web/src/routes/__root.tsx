@@ -510,18 +510,32 @@ function EventRouter() {
     const fallbackToSnapshotRecovery = async (): Promise<void> => {
       await runSnapshotRecovery("replay-failed");
     };
-    const unsubDomainEvent = api.orchestration.onDomainEvent((event) => {
-      const action = recovery.classifyDomainEvent(event.sequence);
-      if (action === "apply") {
-        pendingDomainEvents.push(event);
-        schedulePendingDomainEventFlush();
-        return;
-      }
-      if (action === "recover") {
-        flushPendingDomainEvents();
-        void recoverFromSequenceGap();
-      }
-    });
+    const unsubDomainEvent = api.orchestration.onDomainEvent(
+      (event) => {
+        const action = recovery.classifyDomainEvent(event.sequence);
+        if (action === "apply") {
+          pendingDomainEvents.push(event);
+          schedulePendingDomainEventFlush();
+          return;
+        }
+        if (action === "recover") {
+          flushPendingDomainEvents();
+          void recoverFromSequenceGap();
+        }
+      },
+      {
+        onDisconnect: () => {
+          recovery.forceReset();
+          pendingDomainEvents.length = 0;
+          flushPendingDomainEventsScheduled = false;
+        },
+        onReconnect: () => {
+          if (!disposed) {
+            void bootstrapFromSnapshotRef.current?.();
+          }
+        },
+      },
+    );
     const unsubTerminalEvent = api.terminal.onEvent((event) => {
       applyTerminalEvent(event);
     });

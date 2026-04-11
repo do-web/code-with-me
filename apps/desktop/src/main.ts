@@ -656,10 +656,14 @@ function configureApplicationMenu(): void {
     {
       label: "View",
       submenu: [
-        { role: "reload" },
-        { role: "forceReload" },
-        { role: "toggleDevTools" },
-        { type: "separator" },
+        ...(isDevelopment
+          ? [
+              { role: "reload" as const },
+              { role: "forceReload" as const },
+              { role: "toggleDevTools" as const },
+              { type: "separator" as const },
+            ]
+          : []),
         { role: "resetZoom" },
         { role: "zoomIn", accelerator: "CmdOrCtrl+=" },
         { role: "zoomIn", accelerator: "CmdOrCtrl+Plus", visible: false },
@@ -1401,6 +1405,22 @@ function createWindow(): BrowserWindow {
 
     Menu.buildFromTemplate(menuTemplate).popup({ window });
   });
+
+  if (!isDevelopment) {
+    window.webContents.on("before-input-event", (event, input) => {
+      const isReload =
+        input.key.toLowerCase() === "r" && (input.meta || input.control) && !input.alt;
+      const isForceReload =
+        input.key.toLowerCase() === "r" &&
+        input.shift &&
+        (input.meta || input.control) &&
+        !input.alt;
+      const isF5 = input.key === "F5";
+      if (isReload || isForceReload || isF5) {
+        event.preventDefault();
+      }
+    });
+  }
 
   window.webContents.setWindowOpenHandler(({ url }) => {
     const externalUrl = getSafeExternalUrl(url);

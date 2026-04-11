@@ -203,5 +203,16 @@ export function createOrchestrationRecoveryCoordinator() {
       state.bootstrapped = false;
       state.inFlight = null;
     },
+
+    /**
+     * Force-clear any in-flight recovery phase.
+     * Call this when the underlying transport disconnects so that a fresh
+     * bootstrap / replay can proceed once the connection is restored.
+     */
+    forceReset(): void {
+      replayStartSequence = null;
+      state.inFlight = null;
+      state.pendingReplay = false;
+    },
   };
 }

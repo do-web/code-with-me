@@ -46,6 +46,12 @@ import {
   OrchestrationRpcSchemas,
 } from "./orchestration";
 import {
+  ProjectListDirectoryError,
+  ProjectListDirectoryInput,
+  ProjectListDirectoryResult,
+  ProjectReadFileError,
+  ProjectReadFileInput,
+  ProjectReadFileResult,
   ProjectReadPackageScriptsError,
   ProjectReadPackageScriptsInput,
   ProjectReadPackageScriptsResult,
@@ -87,6 +93,8 @@ export const WS_METHODS = {
   projectsSearchEntries: "projects.searchEntries",
   projectsWriteFile: "projects.writeFile",
   projectsReadPackageScripts: "projects.readPackageScripts",
+  projectsListDirectory: "projects.listDirectory",
+  projectsReadFile: "projects.readFile",
 
   // Shell methods
   shellOpenInEditor: "shell.openInEditor",
@@ -190,6 +198,18 @@ export const WsProjectsReadPackageScriptsRpc = Rpc.make(WS_METHODS.projectsReadP
   payload: ProjectReadPackageScriptsInput,
   success: ProjectReadPackageScriptsResult,
   error: ProjectReadPackageScriptsError,
+});
+
+export const WsProjectsListDirectoryRpc = Rpc.make(WS_METHODS.projectsListDirectory, {
+  payload: ProjectListDirectoryInput,
+  success: ProjectListDirectoryResult,
+  error: ProjectListDirectoryError,
+});
+
+export const WsProjectsReadFileRpc = Rpc.make(WS_METHODS.projectsReadFile, {
+  payload: ProjectReadFileInput,
+  success: ProjectReadFileResult,
+  error: ProjectReadFileError,
 });
 
 export const WsShellOpenInEditorRpc = Rpc.make(WS_METHODS.shellOpenInEditor, {
@@ -388,6 +408,8 @@ export const WsRpcGroup = RpcGroup.make(
   WsProjectsSearchEntriesRpc,
   WsProjectsWriteFileRpc,
   WsProjectsReadPackageScriptsRpc,
+  WsProjectsListDirectoryRpc,
+  WsProjectsReadFileRpc,
   WsShellOpenInEditorRpc,
   WsGitStatusRpc,
   WsGitPullRpc,

@@ -3,7 +3,13 @@ import { createFileRoute, retainSearchParams, useNavigate } from "@tanstack/reac
 import { Suspense, lazy, type ReactNode, useCallback, useEffect, useState } from "react";
 
 import ChatView from "../components/ChatView";
+import { EditorTabBar } from "../components/EditorTabBar";
+import { EditorView } from "../components/EditorView";
+import { FileExplorerPanel } from "../components/FileExplorerPanel";
 import { DiffWorkerPoolProvider } from "../components/DiffWorkerPoolProvider";
+import { useFileExplorerStore } from "../fileExplorerStore";
+import { useThreadById, useProjectById } from "../storeSelectors";
+import { cn } from "~/lib/utils";
 import {
   DiffPanelHeaderSkeleton,
   DiffPanelLoadingState,
@@ -332,12 +338,38 @@ function ChatThreadRouteView() {
   const shouldRenderDiffContent = diffOpen || hasOpenedDiff;
   const shouldRenderChangesContent = changesOpen || hasOpenedChanges;
 
+  // Derive CWD from active thread's project – explorer follows project switches
+  const thread = useThreadById(threadId);
+  const project = useProjectById(thread?.projectId);
+  const activeProjectCwd = project?.cwd ?? null;
+
+  const explorerOpen = useFileExplorerStore((s) => s.explorerOpen);
+  const closeExplorer = useFileExplorerStore((s) => s.closeExplorer);
+  const openFiles = useFileExplorerStore((s) => s.openFiles);
+  const activeFilePath = useFileExplorerStore((s) => s.activeFilePath);
+  const hasOpenFiles = openFiles.length > 0;
+
+  const fileExplorerPanel =
+    explorerOpen && activeProjectCwd ? (
+      <FileExplorerPanel cwd={activeProjectCwd} onClose={closeExplorer} />
+    ) : null;
+
+  const mainContent = (
+    <SidebarInset className="h-dvh min-h-0 overflow-hidden overscroll-y-none bg-background text-foreground">
+      {hasOpenFiles && <EditorTabBar />}
+      {/* ChatView stays mounted – CSS hidden preserves scroll, drafts, streams */}
+      <div className={cn("flex min-h-0 flex-1 flex-col", activeFilePath && "hidden")}>
+        <ChatView threadId={threadId} />
+      </div>
+      {activeFilePath && <EditorView relativePath={activeFilePath} />}
+    </SidebarInset>
+  );
+
   if (!shouldUseDiffSheet) {
     return (
       <>
-        <SidebarInset className="h-dvh  min-h-0 overflow-hidden overscroll-y-none bg-background text-foreground">
-          <ChatView threadId={threadId} />
-        </SidebarInset>
+        {fileExplorerPanel}
+        {mainContent}
         <ChangesPanelInlineSidebar
           changesOpen={changesOpen}
           onCloseChanges={closeChanges}
@@ -356,9 +388,8 @@ function ChatThreadRouteView() {
 
   return (
     <>
-      <SidebarInset className="h-dvh min-h-0 overflow-hidden overscroll-y-none bg-background text-foreground">
-        <ChatView threadId={threadId} />
-      </SidebarInset>
+      {fileExplorerPanel}
+      {mainContent}
       <ChangesPanelSheet changesOpen={changesOpen} onCloseChanges={closeChanges}>
         {shouldRenderChangesContent ? <LazyUncommittedChangesPanel mode="sheet" /> : null}
       </ChangesPanelSheet>

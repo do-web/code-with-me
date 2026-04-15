@@ -135,13 +135,13 @@ bun dev
 
 ## Tech Stack
 
-| Category | Technologies |
-|---|---|
-| **Frontend** | React 19, Vite, Tailwind CSS, TanStack Router/Query, Zustand, Effect |
-| **Backend** | Node.js, Effect, SQLite, WebSocket/RPC |
-| **Desktop** | Electron, electron-updater |
-| **Build** | Bun, Turbo, TypeScript, tsdown |
-| **Code Quality** | oxlint, oxfmt, Vitest, Playwright |
+| Category         | Technologies                                                         |
+| ---------------- | -------------------------------------------------------------------- |
+| **Frontend**     | React 19, Vite, Tailwind CSS, TanStack Router/Query, Zustand, Effect |
+| **Backend**      | Node.js, Effect, SQLite, WebSocket/RPC                               |
+| **Desktop**      | Electron, electron-updater                                           |
+| **Build**        | Bun, Turbo, TypeScript, tsdown                                       |
+| **Code Quality** | oxlint, oxfmt, Vitest, Playwright                                    |
 
 ### Architecture
 

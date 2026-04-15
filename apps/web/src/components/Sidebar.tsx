@@ -4,6 +4,7 @@ import {
   ChevronRightIcon,
   FoldVerticalIcon,
   FolderIcon,
+  FolderOpenIcon,
   GitPullRequestIcon,
   PlusIcon,
   SettingsIcon,
@@ -133,6 +134,7 @@ import { useCopyToClipboard } from "~/hooks/useCopyToClipboard";
 import { useSettings, useUpdateSettings } from "~/hooks/useSettings";
 import { useServerKeybindings } from "../rpc/serverState";
 import { useSidebarThreadSummaryById } from "../storeSelectors";
+import { useFileExplorerStore } from "../fileExplorerStore";
 import type { Project } from "../types";
 const THREAD_PREVIEW_LIMIT = 6;
 const SIDEBAR_SORT_LABELS: Record<SidebarProjectSortOrder, string> = {
@@ -1703,6 +1705,58 @@ export default function Sidebar() {
               render={
                 <SidebarMenuAction
                   render={
+                    <button type="button" aria-label={`Open file explorer for ${project.name}`} />
+                  }
+                  showOnHover
+                  className="top-1 right-7 size-5 rounded-md p-0 text-muted-foreground/70 hover:bg-secondary hover:text-foreground"
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    const store = useFileExplorerStore.getState();
+
+                    if (routeProjectId === project.id) {
+                      // Same project – just toggle the explorer
+                      store.toggleExplorer();
+                    } else {
+                      // Different project – open explorer and navigate to it
+                      if (!store.explorerOpen) {
+                        store.toggleExplorer();
+                      }
+                      // Navigate to most recent thread or create one
+                      const projectThreadIds = threadIdsByProjectId[project.id] ?? [];
+                      const latestThread = sortThreadsForSidebar(
+                        projectThreadIds
+                          .map((tid) => sidebarThreadsById[tid])
+                          .filter(
+                            (t): t is NonNullable<typeof t> =>
+                              t !== undefined && t.archivedAt === null,
+                          ),
+                        appSettings.sidebarThreadSortOrder,
+                      )[0];
+                      if (latestThread) {
+                        void navigate({
+                          to: "/$threadId",
+                          params: { threadId: latestThread.id },
+                        });
+                      } else {
+                        void handleNewThread(project.id, {
+                          envMode: appSettings.defaultThreadEnvMode,
+                        });
+                      }
+                    }
+                  }}
+                >
+                  <FolderOpenIcon className="size-3.5" />
+                </SidebarMenuAction>
+              }
+            />
+            <TooltipPopup side="top">File explorer</TooltipPopup>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <SidebarMenuAction
+                  render={
                     <button
                       type="button"
                       aria-label={`Create new thread in ${project.name}`}
@@ -2245,7 +2299,10 @@ export default function Sidebar() {
               ) : (
                 <SidebarMenu ref={attachProjectListAutoAnimateRef}>
                   {renderedProjects.map((renderedProject) => (
-                    <SidebarMenuItem key={renderedProject.project.id} className={`rounded-md ${renderedProject.project.expanded ? "mb-2" : ""}`}>
+                    <SidebarMenuItem
+                      key={renderedProject.project.id}
+                      className={`rounded-md ${renderedProject.project.expanded ? "mb-2" : ""}`}
+                    >
                       {renderProjectItem(renderedProject, null)}
                     </SidebarMenuItem>
                   ))}

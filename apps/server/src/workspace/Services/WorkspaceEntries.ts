@@ -9,7 +9,12 @@
 import { Schema, ServiceMap } from "effect";
 import type { Effect } from "effect";
 
-import type { ProjectSearchEntriesInput, ProjectSearchEntriesResult } from "@codewithme/contracts";
+import type {
+  ProjectListDirectoryInput,
+  ProjectListDirectoryResult,
+  ProjectSearchEntriesInput,
+  ProjectSearchEntriesResult,
+} from "@codewithme/contracts";
 
 export class WorkspaceEntriesError extends Schema.TaggedErrorClass<WorkspaceEntriesError>()(
   "WorkspaceEntriesError",
@@ -33,6 +38,16 @@ export interface WorkspaceEntriesShape {
   readonly search: (
     input: ProjectSearchEntriesInput,
   ) => Effect.Effect<ProjectSearchEntriesResult, WorkspaceEntriesError>;
+
+  /**
+   * List entries in a single directory level within the workspace.
+   *
+   * When `directoryPath` is omitted the workspace root is listed.
+   * Returns only immediate children (directories first, then files, alphabetical).
+   */
+  readonly listDirectory: (
+    input: ProjectListDirectoryInput,
+  ) => Effect.Effect<ProjectListDirectoryResult, WorkspaceEntriesError>;
 
   /**
    * Drop any cached workspace entries for the given workspace root.

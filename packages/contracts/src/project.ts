@@ -54,6 +54,51 @@ export class ProjectWriteFileError extends Schema.TaggedErrorClass<ProjectWriteF
   },
 ) {}
 
+// --- List directory ---
+
+const PROJECT_READ_FILE_PATH_MAX_LENGTH = 512;
+
+export const ProjectListDirectoryInput = Schema.Struct({
+  cwd: TrimmedNonEmptyString,
+  directoryPath: Schema.optional(TrimmedNonEmptyString),
+});
+export type ProjectListDirectoryInput = typeof ProjectListDirectoryInput.Type;
+
+export const ProjectListDirectoryResult = Schema.Struct({
+  entries: Schema.Array(ProjectEntry),
+});
+export type ProjectListDirectoryResult = typeof ProjectListDirectoryResult.Type;
+
+export class ProjectListDirectoryError extends Schema.TaggedErrorClass<ProjectListDirectoryError>()(
+  "ProjectListDirectoryError",
+  {
+    message: TrimmedNonEmptyString,
+    cause: Schema.optional(Schema.Defect),
+  },
+) {}
+
+// --- Read file ---
+
+export const ProjectReadFileInput = Schema.Struct({
+  cwd: TrimmedNonEmptyString,
+  relativePath: TrimmedNonEmptyString.check(Schema.isMaxLength(PROJECT_READ_FILE_PATH_MAX_LENGTH)),
+});
+export type ProjectReadFileInput = typeof ProjectReadFileInput.Type;
+
+export const ProjectReadFileResult = Schema.Struct({
+  contents: Schema.String,
+  relativePath: TrimmedNonEmptyString,
+});
+export type ProjectReadFileResult = typeof ProjectReadFileResult.Type;
+
+export class ProjectReadFileError extends Schema.TaggedErrorClass<ProjectReadFileError>()(
+  "ProjectReadFileError",
+  {
+    message: TrimmedNonEmptyString,
+    cause: Schema.optional(Schema.Defect),
+  },
+) {}
+
 // --- Package scripts ---
 
 export const PackageManagerId = Schema.Literals(["npm", "bun", "yarn", "pnpm"]);

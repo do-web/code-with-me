@@ -51,6 +51,8 @@ export interface WsRpcClient {
     readonly searchEntries: RpcUnaryMethod<typeof WS_METHODS.projectsSearchEntries>;
     readonly writeFile: RpcUnaryMethod<typeof WS_METHODS.projectsWriteFile>;
     readonly readPackageScripts: RpcUnaryMethod<typeof WS_METHODS.projectsReadPackageScripts>;
+    readonly listDirectory: RpcUnaryMethod<typeof WS_METHODS.projectsListDirectory>;
+    readonly readFile: RpcUnaryMethod<typeof WS_METHODS.projectsReadFile>;
   };
   readonly shell: {
     readonly openInEditor: (input: {
@@ -144,6 +146,10 @@ export function createWsRpcClient(transport = new WsTransport()): WsRpcClient {
         transport.request((client) => client[WS_METHODS.projectsWriteFile](input)),
       readPackageScripts: (input) =>
         transport.request((client) => client[WS_METHODS.projectsReadPackageScripts](input)),
+      listDirectory: (input) =>
+        transport.request((client) => client[WS_METHODS.projectsListDirectory](input)),
+      readFile: (input) =>
+        transport.request((client) => client[WS_METHODS.projectsReadFile](input)),
     },
     shell: {
       openInEditor: (input) =>

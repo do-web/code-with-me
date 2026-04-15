@@ -3,7 +3,7 @@ import type { Dirent } from "node:fs";
 
 import { Cache, Duration, Effect, Exit, Layer, Option, Path } from "effect";
 
-import { type ProjectEntry } from "@codewithme/contracts";
+import { type ProjectEntry, type ProjectListDirectoryInput } from "@codewithme/contracts";
 
 import { GitCore } from "../../git/Services/GitCore.ts";
 import {
@@ -494,8 +494,37 @@ export const makeWorkspaceEntries = Effect.gen(function* () {
     },
   );
 
+  const listDirectory: WorkspaceEntriesShape["listDirectory"] = Effect.fn(
+    "WorkspaceEntries.listDirectory",
+  )(function* (input: ProjectListDirectoryInput) {
+    const normalizedCwd = yield* normalizeWorkspaceRoot(input.cwd);
+    return yield* Cache.get(workspaceIndexCache, normalizedCwd).pipe(
+      Effect.map((index) => {
+        const targetParent = input.directoryPath ?? undefined;
+        const filtered = index.entries.filter((entry) => entry.parentPath === targetParent);
+
+        // Sort: directories first, then alphabetical by path
+        filtered.sort((left, right) => {
+          if (left.kind !== right.kind) {
+            return left.kind === "directory" ? -1 : 1;
+          }
+          return left.path.localeCompare(right.path);
+        });
+
+        return {
+          entries: filtered.map((entry) => ({
+            path: entry.path,
+            kind: entry.kind,
+            parentPath: entry.parentPath,
+          })),
+        };
+      }),
+    );
+  });
+
   return {
     invalidate,
+    listDirectory,
     search,
   } satisfies WorkspaceEntriesShape;
 });

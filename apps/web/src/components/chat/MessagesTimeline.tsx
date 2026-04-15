@@ -9,6 +9,8 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { useTimelineSearchContext } from "./TimelineSearchContext";
+import { splitTextForHighlight } from "./timelineSearchUtils";
 import {
   measureElement as measureVirtualElement,
   type VirtualItem,
@@ -96,6 +98,8 @@ interface MessagesTimelineProps {
       end: number;
     }>;
   }) => void;
+  /** Mutable ref that MessagesTimeline populates with a scroll-to-row function. */
+  scrollToRowRef?: React.RefObject<((rowId: string) => void) | null>;
 }
 
 export const MessagesTimeline = memo(function MessagesTimeline({
@@ -121,6 +125,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   timestampFormat,
   workspaceRoot,
   onVirtualizerSnapshot,
+  scrollToRowRef,
 }: MessagesTimelineProps) {
   const timelineRootRef = useRef<HTMLDivElement | null>(null);
   const [timelineWidthPx, setTimelineWidthPx] = useState<number | null>(null);
@@ -248,6 +253,39 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       rowVirtualizer.shouldAdjustScrollPositionOnItemSizeChange = undefined;
     };
   }, [rowVirtualizer]);
+
+  // Expose scroll-to-row function for search navigation
+  if (scrollToRowRef) {
+    (scrollToRowRef as React.MutableRefObject<((rowId: string) => void) | null>).current = (
+      rowId: string,
+    ) => {
+      const rowIndex = rows.findIndex((row) => {
+        if (row.kind === "working") return false;
+        if (row.id === rowId) return true;
+        if (row.kind === "work") {
+          return row.groupedEntries.some((entry) => entry.id === rowId);
+        }
+        return false;
+      });
+      if (rowIndex < 0) return;
+
+      // Expand collapsed work groups
+      const row = rows[rowIndex];
+      if (row?.kind === "work" && row.groupedEntries.length > MAX_VISIBLE_WORK_LOG_ENTRIES) {
+        if (!expandedWorkGroups[row.id]) {
+          onToggleWorkGroup(row.id);
+        }
+      }
+
+      if (rowIndex < firstUnvirtualizedRowIndex) {
+        rowVirtualizer.scrollToIndex(rowIndex, { align: "center" });
+      } else {
+        const el = document.querySelector(`[data-timeline-row-id="${CSS.escape(row?.id ?? "")}"]`);
+        if (el) el.scrollIntoView({ block: "center" });
+      }
+    };
+  }
+
   const pendingMeasureFrameRef = useRef<number | null>(null);
   const onTimelineImageLoad = useCallback(() => {
     if (pendingMeasureFrameRef.current !== null) return;
@@ -346,7 +384,11 @@ export const MessagesTimeline = memo(function MessagesTimeline({
               )}
               <div className="space-y-0.5">
                 {visibleEntries.map((workEntry) => (
-                  <SimpleWorkEntryRow key={`work-row:${workEntry.id}`} workEntry={workEntry} />
+                  <SimpleWorkEntryRow
+                    key={`work-row:${workEntry.id}`}
+                    workEntry={workEntry}
+                    entryId={workEntry.id}
+                  />
                 ))}
               </div>
             </div>
@@ -404,6 +446,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                   terminalContexts.length > 0) && (
                   <UserMessageBody
                     text={displayedUserMessage.visibleText}
+                    entryId={row.id}
                     terminalContexts={terminalContexts}
                   />
                 )}
@@ -450,10 +493,11 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                 </div>
               )}
               <div className="min-w-0 px-1 py-0.5">
-                <ChatMarkdown
+                <ChatMarkdownWithSearch
                   text={messageText}
                   cwd={markdownCwd}
                   isStreaming={Boolean(row.message.streaming)}
+                  entryId={row.id}
                 />
                 {(() => {
                   const turnSummary = turnDiffSummaryByAssistantMessageId.get(row.message.id);
@@ -528,10 +572,11 @@ export const MessagesTimeline = memo(function MessagesTimeline({
 
       {row.kind === "proposed-plan" && (
         <div className="min-w-0 px-1 py-0.5">
-          <ProposedPlanCard
+          <ProposedPlanCardWithSearch
             planMarkdown={row.proposedPlan.planMarkdown}
             cwd={markdownCwd}
             workspaceRoot={workspaceRoot}
+            entryId={row.id}
           />
         </div>
       )}
@@ -651,8 +696,78 @@ const UserMessageTerminalContextInlineLabel = memo(
   },
 );
 
+/** Thin wrapper around ProposedPlanCard that reads the search context and passes the highlight query. */
+function ProposedPlanCardWithSearch(props: {
+  planMarkdown: string;
+  cwd: string | undefined;
+  workspaceRoot: string | undefined;
+  entryId: string;
+}) {
+  const { query, matchingEntryIds } = useTimelineSearchContext();
+  const highlightQuery = query && matchingEntryIds.has(props.entryId) ? query : undefined;
+  return (
+    <ProposedPlanCard
+      planMarkdown={props.planMarkdown}
+      cwd={props.cwd}
+      workspaceRoot={props.workspaceRoot}
+      searchHighlightQuery={highlightQuery}
+    />
+  );
+}
+
+/** Thin wrapper around ChatMarkdown that reads the search context and passes the highlight query. */
+function ChatMarkdownWithSearch(props: {
+  text: string;
+  cwd: string | undefined;
+  isStreaming: boolean;
+  entryId: string;
+}) {
+  const { query, matchingEntryIds } = useTimelineSearchContext();
+  const highlightQuery = query && matchingEntryIds.has(props.entryId) ? query : undefined;
+  return (
+    <ChatMarkdown
+      text={props.text}
+      cwd={props.cwd}
+      isStreaming={props.isStreaming}
+      searchHighlightQuery={highlightQuery}
+    />
+  );
+}
+
+/** Renders text with search-match highlights when the search context has an active query. */
+function SearchHighlightedText(props: { text: string; entryId: string }) {
+  const { query, activeMatchEntryId, activeMatchTextOffset, matchingEntryIds } =
+    useTimelineSearchContext();
+  if (!query || !matchingEntryIds.has(props.entryId)) {
+    return <>{props.text}</>;
+  }
+  const isActiveEntry = activeMatchEntryId === props.entryId;
+  const segments = splitTextForHighlight(
+    props.text,
+    query,
+    isActiveEntry ? activeMatchTextOffset : null,
+  );
+  let cursor = 0;
+  return (
+    <>
+      {segments.map((segment) => {
+        const key = `${cursor}:${segment.isMatch ? "m" : "t"}`;
+        cursor += segment.text.length;
+        return segment.isMatch ? (
+          <mark key={key} data-search-match="" data-active={segment.isActive ? "true" : undefined}>
+            {segment.text}
+          </mark>
+        ) : (
+          <span key={key}>{segment.text}</span>
+        );
+      })}
+    </>
+  );
+}
+
 const UserMessageBody = memo(function UserMessageBody(props: {
   text: string;
+  entryId: string;
   terminalContexts: ParsedTerminalContextEntry[];
 }) {
   if (props.terminalContexts.length > 0) {
@@ -739,7 +854,7 @@ const UserMessageBody = memo(function UserMessageBody(props: {
 
   return (
     <pre className="whitespace-pre-wrap wrap-break-word font-mono text-sm leading-relaxed text-foreground">
-      {props.text}
+      <SearchHighlightedText text={props.text} entryId={props.entryId} />
     </pre>
   );
 });
@@ -834,8 +949,9 @@ function toolWorkEntryHeading(workEntry: TimelineWorkEntry): string {
 
 const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
   workEntry: TimelineWorkEntry;
+  entryId: string;
 }) {
-  const { workEntry } = props;
+  const { workEntry, entryId } = props;
   const iconConfig = workToneIcon(workEntry.tone);
   const EntryIcon = workEntryIcon(workEntry);
   const heading = toolWorkEntryHeading(workEntry);
@@ -862,9 +978,14 @@ const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
             title={displayText}
           >
             <span className={cn("text-foreground/80", workToneClass(workEntry.tone))}>
-              {heading}
+              <SearchHighlightedText text={heading} entryId={entryId} />
             </span>
-            {preview && <span className="text-muted-foreground/55"> - {preview}</span>}
+            {preview && (
+              <span className="text-muted-foreground/55">
+                {" - "}
+                <SearchHighlightedText text={preview} entryId={entryId} />
+              </span>
+            )}
           </p>
         </div>
       </div>

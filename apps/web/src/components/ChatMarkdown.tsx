@@ -24,6 +24,57 @@ import { useTheme } from "../hooks/useTheme";
 import { resolveMarkdownFileLinkTarget } from "../markdown-links";
 import { readNativeApi } from "../nativeApi";
 
+/**
+ * Highlights search query matches within a single string by splitting it
+ * into text + `<mark>` segments.
+ */
+function highlightString(text: string, lowerQuery: string): ReactNode {
+  const lowerText = text.toLowerCase();
+  const parts: ReactNode[] = [];
+  let cursor = 0;
+  let hasMatch = false;
+
+  while (cursor < text.length) {
+    const foundAt = lowerText.indexOf(lowerQuery, cursor);
+    if (foundAt === -1) {
+      parts.push(text.slice(cursor));
+      break;
+    }
+    hasMatch = true;
+    if (foundAt > cursor) parts.push(text.slice(cursor, foundAt));
+    parts.push(
+      <mark key={foundAt} data-search-match="">
+        {text.slice(foundAt, foundAt + lowerQuery.length)}
+      </mark>,
+    );
+    cursor = foundAt + lowerQuery.length;
+  }
+
+  return hasMatch ? <>{parts}</> : text;
+}
+
+/**
+ * Processes React children: highlights strings, recurses into arrays.
+ * Keeps it flat — no cloneElement, no Children.map.
+ */
+function highlightReactChildren(children: ReactNode, lowerQuery: string): ReactNode {
+  if (typeof children === "string") return highlightString(children, lowerQuery);
+  if (typeof children === "number") return highlightString(String(children), lowerQuery);
+  if (Array.isArray(children)) {
+    let offset = 0;
+    return children.map((child) => {
+      if (typeof child === "string") {
+        const key = `hl:${offset}`;
+        offset += child.length;
+        return <React.Fragment key={key}>{highlightString(child, lowerQuery)}</React.Fragment>;
+      }
+      offset += 1;
+      return child;
+    });
+  }
+  return children;
+}
+
 class CodeHighlightErrorBoundary extends React.Component<
   { fallback: ReactNode; children: ReactNode },
   { hasError: boolean }
@@ -49,6 +100,8 @@ interface ChatMarkdownProps {
   text: string;
   cwd: string | undefined;
   isStreaming?: boolean;
+  /** When set, highlight all occurrences of this query in text nodes. */
+  searchHighlightQuery?: string | undefined;
 }
 
 const CODE_FENCE_LANGUAGE_REGEX = /(?:^|\s)language-([^\s]+)/;
@@ -197,6 +250,8 @@ function SuspenseShikiCodeBlock({
   const cachedHighlightedHtml = !isStreaming ? highlightedCodeCache.get(cacheKey) : null;
 
   if (cachedHighlightedHtml != null) {
+    // Shiki produces trusted pre-highlighted HTML from its own grammar engine.
+    // This is the same pattern used by the existing codebase — not user input.
     return (
       <div
         className="chat-markdown-shiki"
@@ -230,16 +285,62 @@ function SuspenseShikiCodeBlock({
     }
   }, [cacheKey, code, highlightedHtml, isStreaming]);
 
+  // Shiki produces trusted pre-highlighted HTML from its own grammar engine.
+  // This is the same pattern used by the existing codebase — not user input.
   return (
     <div className="chat-markdown-shiki" dangerouslySetInnerHTML={{ __html: highlightedHtml }} />
   );
 }
 
-function ChatMarkdown({ text, cwd, isStreaming = false }: ChatMarkdownProps) {
+/**
+ * Builds ReactMarkdown component overrides that highlight search matches
+ * in all text-containing elements. Each override renders the original tag
+ * but passes children through `highlightChildren` to wrap matching strings
+ * in `<mark>` elements.
+ */
+function buildSearchHighlightOverrides(lowerQuery: string): Partial<Components> {
+  const tags = [
+    "p",
+    "li",
+    "td",
+    "th",
+    "h1",
+    "h2",
+    "h3",
+    "h4",
+    "h5",
+    "h6",
+    "strong",
+    "em",
+    "del",
+    "blockquote",
+    "span",
+  ] as const;
+
+  const overrides: Record<string, (props: Record<string, unknown>) => ReactNode> = {};
+  for (const tag of tags) {
+    overrides[tag] = ({ node: _node, children, ...props }: Record<string, unknown>) =>
+      React.createElement(tag, props, highlightReactChildren(children as ReactNode, lowerQuery));
+  }
+  return overrides as Partial<Components>;
+}
+
+function ChatMarkdown({ text, cwd, isStreaming = false, searchHighlightQuery }: ChatMarkdownProps) {
   const { resolvedTheme } = useTheme();
   const diffThemeName = resolveDiffThemeName(resolvedTheme);
+  const lowerSearchQuery =
+    searchHighlightQuery && searchHighlightQuery.trim().length >= 2
+      ? searchHighlightQuery.trim().toLowerCase()
+      : null;
+
+  const searchOverrides = useMemo(
+    () => (lowerSearchQuery ? buildSearchHighlightOverrides(lowerSearchQuery) : {}),
+    [lowerSearchQuery],
+  );
+
   const markdownComponents = useMemo<Components>(
     () => ({
+      ...searchOverrides,
       a({ node: _node, href, ...props }) {
         const targetPath = resolveMarkdownFileLinkTarget(href, cwd);
         if (!targetPath) {
@@ -285,7 +386,7 @@ function ChatMarkdown({ text, cwd, isStreaming = false }: ChatMarkdownProps) {
         );
       },
     }),
-    [cwd, diffThemeName, isStreaming],
+    [cwd, diffThemeName, isStreaming, searchOverrides],
   );
 
   return (

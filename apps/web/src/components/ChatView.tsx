@@ -163,6 +163,9 @@ import {
 import { ComposerPromptEditor, type ComposerPromptEditorHandle } from "./ComposerPromptEditor";
 import { PullRequestThreadDialog } from "./PullRequestThreadDialog";
 import { MessagesTimeline } from "./chat/MessagesTimeline";
+import { TimelineSearchBar } from "./chat/TimelineSearchBar";
+import { TimelineSearchContext } from "./chat/TimelineSearchContext";
+import { useTimelineSearch } from "./chat/useTimelineSearch";
 import { ChatHeader } from "./chat/ChatHeader";
 import { ContextWindowMeter } from "./chat/ContextWindowMeter";
 import { buildExpandedImagePreview, ExpandedImagePreview } from "./chat/ExpandedImagePreview";
@@ -1364,6 +1367,13 @@ export default function ChatView({ threadId }: ChatViewProps) {
       deriveTimelineEntries(timelineMessages, activeThread?.proposedPlans ?? [], workLogEntries),
     [activeThread?.proposedPlans, timelineMessages, workLogEntries],
   );
+  const [timelineSearch, timelineSearchActions] = useTimelineSearch(timelineEntries);
+  // Close search when switching threads
+  const prevThreadIdRef = useRef(activeThreadId);
+  if (prevThreadIdRef.current !== activeThreadId) {
+    prevThreadIdRef.current = activeThreadId;
+    if (timelineSearch.isOpen) timelineSearchActions.close();
+  }
   const { turnDiffSummaries, inferredCheckpointTurnCountByTurnId } =
     useTurnDiffSummaries(activeThread);
   const turnDiffSummaryByAssistantMessageId = useMemo(() => {
@@ -2217,9 +2227,12 @@ export default function ChatView({ threadId }: ChatViewProps) {
     [serverThread],
   );
 
-  // Auto-scroll on new messages
+  // Auto-scroll on new messages — suppressed while timeline search is open
+  const timelineSearchOpenRef = useRef(false);
+  timelineSearchOpenRef.current = timelineSearch.isOpen;
   const messageCount = timelineMessages.length;
   const scrollMessagesToBottom = useCallback((behavior: ScrollBehavior = "auto") => {
+    if (timelineSearchOpenRef.current) return;
     const scrollContainer = messagesScrollRef.current;
     if (!scrollContainer) return;
     scrollContainer.scrollTo({ top: scrollContainer.scrollHeight, behavior });
@@ -2239,9 +2252,11 @@ export default function ChatView({ threadId }: ChatViewProps) {
     window.cancelAnimationFrame(pendingFrame);
   }, []);
   const scheduleStickToBottom = useCallback(() => {
+    if (timelineSearchOpenRef.current) return;
     if (pendingAutoScrollFrameRef.current !== null) return;
     pendingAutoScrollFrameRef.current = window.requestAnimationFrame(() => {
       pendingAutoScrollFrameRef.current = null;
+      if (timelineSearchOpenRef.current) return;
       scrollMessagesToBottom();
     });
   }, [scrollMessagesToBottom]);
@@ -2443,13 +2458,15 @@ export default function ChatView({ threadId }: ChatViewProps) {
   ]);
   useEffect(() => {
     if (!shouldAutoScrollRef.current) return;
+    if (timelineSearch.isOpen) return;
     scheduleStickToBottom();
-  }, [messageCount, scheduleStickToBottom]);
+  }, [messageCount, scheduleStickToBottom, timelineSearch.isOpen]);
   useEffect(() => {
     if (phase !== "running") return;
     if (!shouldAutoScrollRef.current) return;
+    if (timelineSearch.isOpen) return;
     scheduleStickToBottom();
-  }, [phase, scheduleStickToBottom, timelineEntries]);
+  }, [phase, scheduleStickToBottom, timelineEntries, timelineSearch.isOpen]);
 
   useEffect(() => {
     setExpandedWorkGroups({});
@@ -2821,6 +2838,15 @@ export default function ChatView({ threadId }: ChatViewProps) {
         return;
       }
 
+      if (command === "chat.find") {
+        event.preventDefault();
+        event.stopPropagation();
+        shouldAutoScrollRef.current = false;
+        cancelPendingStickToBottom();
+        timelineSearchActions.open();
+        return;
+      }
+
       if (command === "diff.toggle") {
         event.preventDefault();
         event.stopPropagation();
@@ -2851,6 +2877,8 @@ export default function ChatView({ threadId }: ChatViewProps) {
     keybindings,
     onToggleDiff,
     toggleTerminalVisibility,
+    timelineSearchActions,
+    cancelPendingStickToBottom,
   ]);
 
   const addComposerAttachments = (files: File[]) => {
@@ -4055,6 +4083,89 @@ export default function ChatView({ threadId }: ChatViewProps) {
     }
     return false;
   };
+  const activeSearchMatch =
+    timelineSearch.activeMatchIndex >= 0
+      ? timelineSearch.matches[timelineSearch.activeMatchIndex]
+      : undefined;
+  const timelineSearchContextValue = useMemo(() => {
+    if (!timelineSearch.isOpen || timelineSearch.matches.length === 0) {
+      return {
+        query: timelineSearch.query,
+        activeMatchEntryId: null,
+        activeMatchTextOffset: null,
+        matchingEntryIds: new Set<string>() as ReadonlySet<string>,
+      };
+    }
+    const ids = new Set<string>();
+    for (const match of timelineSearch.matches) {
+      ids.add(match.entryId);
+    }
+    return {
+      query: timelineSearch.query,
+      activeMatchEntryId: activeSearchMatch?.entryId ?? null,
+      activeMatchTextOffset: activeSearchMatch?.textOffset ?? null,
+      matchingEntryIds: ids as ReadonlySet<string>,
+    };
+  }, [timelineSearch.isOpen, timelineSearch.query, timelineSearch.matches, activeSearchMatch]);
+
+  // Scroll to active search match.
+  // Two-phase: virtualizer scrollToIndex gets us close (correct for virtualized rows),
+  // then rAF + scrollIntoView fine-tunes after the virtualizer renders the target row.
+  const timelineScrollToRowRef = useRef<((rowId: string) => void) | null>(null);
+  const prevScrollSearchKeyRef = useRef<string | null>(null);
+  const scrollSearchKey = activeSearchMatch
+    ? `${activeSearchMatch.rowId}::${timelineSearch.scrollNonce}`
+    : null;
+  useLayoutEffect(() => {
+    if (!scrollSearchKey || !activeSearchMatch) return;
+    if (scrollSearchKey === prevScrollSearchKeyRef.current) return;
+    prevScrollSearchKeyRef.current = scrollSearchKey;
+
+    cancelPendingStickToBottom();
+    shouldAutoScrollRef.current = false;
+
+    const container = messagesScrollRef.current;
+    if (!container) return;
+
+    const rowId = activeSearchMatch.rowId;
+
+    // Phase 1: virtualizer scroll — gets the row into the DOM/viewport
+    if (timelineScrollToRowRef.current) {
+      timelineScrollToRowRef.current(rowId);
+    }
+
+    // Phase 2: scroll to the actual <mark> highlight WITHIN the row.
+    // A single assistant message can be thousands of pixels tall —
+    // scrolling to the row top isn't enough, we need the mark position.
+    // If the row has multiple marks, pick the Nth one for this match.
+    const matchIndexInRow = timelineSearch.matches
+      .slice(0, timelineSearch.activeMatchIndex)
+      .filter((m) => m.rowId === rowId).length;
+
+    requestAnimationFrame(() => {
+      cancelPendingStickToBottom();
+      shouldAutoScrollRef.current = false;
+
+      const rowEl = container.querySelector(`[data-timeline-row-id="${CSS.escape(rowId)}"]`);
+      const marks = rowEl?.querySelectorAll("mark[data-search-match]");
+      const targetMark = marks?.[matchIndexInRow] ?? marks?.[0];
+      if (targetMark) {
+        targetMark.scrollIntoView({ block: "center" });
+        return;
+      }
+
+      if (rowEl) {
+        rowEl.scrollIntoView({ block: "center" });
+      }
+    });
+  }, [
+    scrollSearchKey,
+    activeSearchMatch,
+    timelineSearch.matches,
+    timelineSearch.activeMatchIndex,
+    cancelPendingStickToBottom,
+  ]);
+
   const onToggleWorkGroup = useCallback((groupId: string) => {
     setExpandedWorkGroups((existing) => ({
       ...existing,
@@ -4169,6 +4280,19 @@ export default function ChatView({ threadId }: ChatViewProps) {
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
           {/* Messages Wrapper */}
           <div className="relative flex min-h-0 flex-1 flex-col">
+            {/* Search bar */}
+            {timelineSearch.isOpen && (
+              <TimelineSearchBar
+                query={timelineSearch.query}
+                activeMatchIndex={timelineSearch.activeMatchIndex}
+                totalMatchCount={timelineSearch.matches.length}
+                onQueryChange={timelineSearchActions.setQuery}
+                onNext={timelineSearchActions.goToNext}
+                onPrevious={timelineSearchActions.goToPrevious}
+                onClose={timelineSearchActions.close}
+                inputRef={timelineSearchActions.inputRef}
+              />
+            )}
             {/* Messages */}
             <div
               ref={setMessagesScrollContainerRef}
@@ -4184,30 +4308,33 @@ export default function ChatView({ threadId }: ChatViewProps) {
               onTouchEnd={onMessagesTouchEnd}
               onTouchCancel={onMessagesTouchEnd}
             >
-              <MessagesTimeline
-                key={activeThread.id}
-                hasMessages={timelineEntries.length > 0}
-                isWorking={isWorking}
-                activeTurnInProgress={isWorking || !latestTurnSettled}
-                activeTurnStartedAt={activeWorkStartedAt}
-                scrollContainer={messagesScrollElement}
-                timelineEntries={timelineEntries}
-                completionDividerBeforeEntryId={completionDividerBeforeEntryId}
-                completionSummary={completionSummary}
-                turnDiffSummaryByAssistantMessageId={turnDiffSummaryByAssistantMessageId}
-                nowIso={nowIso}
-                expandedWorkGroups={expandedWorkGroups}
-                onToggleWorkGroup={onToggleWorkGroup}
-                onOpenTurnDiff={onOpenTurnDiff}
-                revertTurnCountByUserMessageId={revertTurnCountByUserMessageId}
-                onRevertUserMessage={onRevertUserMessage}
-                isRevertingCheckpoint={isRevertingCheckpoint}
-                onImageExpand={onExpandTimelineImage}
-                markdownCwd={gitCwd ?? undefined}
-                resolvedTheme={resolvedTheme}
-                timestampFormat={timestampFormat}
-                workspaceRoot={activeProject?.cwd ?? undefined}
-              />
+              <TimelineSearchContext.Provider value={timelineSearchContextValue}>
+                <MessagesTimeline
+                  key={activeThread.id}
+                  hasMessages={timelineEntries.length > 0}
+                  isWorking={isWorking}
+                  activeTurnInProgress={isWorking || !latestTurnSettled}
+                  activeTurnStartedAt={activeWorkStartedAt}
+                  scrollContainer={messagesScrollElement}
+                  timelineEntries={timelineEntries}
+                  completionDividerBeforeEntryId={completionDividerBeforeEntryId}
+                  completionSummary={completionSummary}
+                  turnDiffSummaryByAssistantMessageId={turnDiffSummaryByAssistantMessageId}
+                  nowIso={nowIso}
+                  expandedWorkGroups={expandedWorkGroups}
+                  onToggleWorkGroup={onToggleWorkGroup}
+                  onOpenTurnDiff={onOpenTurnDiff}
+                  revertTurnCountByUserMessageId={revertTurnCountByUserMessageId}
+                  onRevertUserMessage={onRevertUserMessage}
+                  isRevertingCheckpoint={isRevertingCheckpoint}
+                  onImageExpand={onExpandTimelineImage}
+                  markdownCwd={gitCwd ?? undefined}
+                  resolvedTheme={resolvedTheme}
+                  timestampFormat={timestampFormat}
+                  workspaceRoot={activeProject?.cwd ?? undefined}
+                  scrollToRowRef={timelineScrollToRowRef}
+                />
+              </TimelineSearchContext.Provider>
             </div>
 
             {/* scroll to bottom pill — shown when user has scrolled away from the bottom */}

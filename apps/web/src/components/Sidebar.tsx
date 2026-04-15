@@ -13,6 +13,7 @@ import {
   UnfoldVerticalIcon,
 } from "lucide-react";
 import { ProjectFavicon } from "./ProjectFavicon";
+import { Skeleton } from "~/components/ui/skeleton";
 import { autoAnimate } from "@formkit/auto-animate";
 import {
   useCallback,
@@ -670,6 +671,7 @@ function SortableProjectItem({
 
 export default function Sidebar() {
   const projects = useStore((store) => store.projects);
+  const bootstrapComplete = useStore((store) => store.bootstrapComplete);
   const sidebarThreadsById = useStore((store) => store.sidebarThreadsById);
   const threadIdsByProjectId = useStore((store) => store.threadIdsByProjectId);
   const { projectExpandedById, projectOrder, threadLastVisitedAtById } = useUiStateStore(
@@ -2248,11 +2250,22 @@ export default function Sidebar() {
                 </SidebarMenu>
               )}
 
-              {projects.length === 0 && !shouldShowProjectPathEntry && (
-                <div className="px-2 pt-4 text-center text-sm text-muted-foreground/60">
-                  No projects yet
-                </div>
-              )}
+              {projects.length === 0 &&
+                !shouldShowProjectPathEntry &&
+                (!bootstrapComplete ? (
+                  <div className="space-y-2 px-2 pt-2">
+                    {Array.from({ length: 3 }, (_, i) => (
+                      <div key={i} className="flex items-center gap-2 px-2 py-1.5">
+                        <Skeleton className="size-4 shrink-0 rounded" />
+                        <Skeleton className="h-3.5 rounded" style={{ width: `${55 + i * 15}%` }} />
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="px-2 pt-4 text-center text-sm text-muted-foreground/60">
+                    No projects yet
+                  </div>
+                ))}
             </SidebarGroup>
           </SidebarContent>
 

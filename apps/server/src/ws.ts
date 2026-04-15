@@ -8,7 +8,6 @@ import {
   OrchestrationDispatchCommandError,
   type OrchestrationEvent,
   OrchestrationGetFullThreadDiffError,
-  OrchestrationGetSnapshotError,
   OrchestrationGetTurnDiffError,
   ORCHESTRATION_WS_METHODS,
   type ProviderAccountStatsEvent,
@@ -35,7 +34,6 @@ import { Keybindings } from "./keybindings";
 import { Open, resolveAvailableEditors } from "./open";
 import { normalizeDispatchCommand } from "./orchestration/Normalizer";
 import { OrchestrationEngineService } from "./orchestration/Services/OrchestrationEngine";
-import { ProjectionSnapshotQuery } from "./orchestration/Services/ProjectionSnapshotQuery";
 import {
   observeRpcEffect,
   observeRpcStream,
@@ -56,7 +54,6 @@ import { SkillDiscovery } from "./skillDiscovery";
 
 const WsRpcLayer = WsRpcGroup.toLayer(
   Effect.gen(function* () {
-    const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
     const orchestrationEngine = yield* OrchestrationEngineService;
     const checkpointDiffQuery = yield* CheckpointDiffQuery;
     const keybindings = yield* Keybindings;
@@ -359,19 +356,9 @@ const WsRpcLayer = WsRpcGroup.toLayer(
 
     return WsRpcGroup.of({
       [ORCHESTRATION_WS_METHODS.getSnapshot]: (_input) =>
-        observeRpcEffect(
-          ORCHESTRATION_WS_METHODS.getSnapshot,
-          projectionSnapshotQuery.getSnapshot().pipe(
-            Effect.mapError(
-              (cause) =>
-                new OrchestrationGetSnapshotError({
-                  message: "Failed to load orchestration snapshot",
-                  cause,
-                }),
-            ),
-          ),
-          { "rpc.aggregate": "orchestration" },
-        ),
+        observeRpcEffect(ORCHESTRATION_WS_METHODS.getSnapshot, orchestrationEngine.getReadModel(), {
+          "rpc.aggregate": "orchestration",
+        }),
       [ORCHESTRATION_WS_METHODS.dispatchCommand]: (command) =>
         observeRpcEffect(
           ORCHESTRATION_WS_METHODS.dispatchCommand,

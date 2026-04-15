@@ -1,7 +1,7 @@
 import {
   OrchestrationEvent,
+  type OrchestrationReadModel,
   type ServerLifecycleWelcomePayload,
-  type ThreadId,
 } from "@codewithme/contracts";
 import {
   Outlet,
@@ -216,7 +216,9 @@ function EventRouter() {
   const handledBootstrapThreadIdRef = useRef<string | null>(null);
   const seenServerConfigUpdateIdRef = useRef(getServerConfigUpdatedNotification()?.id ?? 0);
   const disposedRef = useRef(false);
-  const bootstrapFromSnapshotRef = useRef<() => Promise<void>>(async () => undefined);
+  const bootstrapFromSnapshotRef = useRef<
+    (preloadedSnapshot?: OrchestrationReadModel) => Promise<void>
+  >(async () => undefined);
   const serverConfig = useServerConfig();
 
   const handleWelcome = useEffectEvent((payload: ServerLifecycleWelcomePayload | null) => {
@@ -224,7 +226,10 @@ function EventRouter() {
 
     migrateLocalSettingsToServer();
     void (async () => {
-      await bootstrapFromSnapshotRef.current();
+      // Pass inline snapshot from welcome event to avoid a separate getSnapshot RPC roundtrip.
+      // When snapshot is undefined (reconnection / older server), bootstrapFromSnapshot
+      // falls back to the RPC path.
+      await bootstrapFromSnapshotRef.current(payload.snapshot);
       if (disposedRef.current) {
         return;
       }
@@ -467,12 +472,16 @@ function EventRouter() {
       }
     };
 
-    const runSnapshotRecovery = async (reason: "bootstrap" | "replay-failed"): Promise<void> => {
+    const runSnapshotRecovery = async (
+      reason: "bootstrap" | "replay-failed",
+      preloadedSnapshot?: OrchestrationReadModel,
+    ): Promise<void> => {
       const started = recovery.beginSnapshotRecovery(reason);
       if (import.meta.env.MODE !== "test") {
         const state = recovery.getState();
         console.info("[orchestration-recovery]", "Snapshot recovery requested.", {
           reason,
+          preloaded: preloadedSnapshot !== undefined,
           skipped: !started,
           ...(started
             ? {}
@@ -488,7 +497,7 @@ function EventRouter() {
       }
 
       try {
-        const snapshot = await api.orchestration.getSnapshot();
+        const snapshot = preloadedSnapshot ?? (await api.orchestration.getSnapshot());
         if (!disposed) {
           syncServerReadModel(snapshot);
           reconcileSnapshotDerivedState();
@@ -502,8 +511,10 @@ function EventRouter() {
       }
     };
 
-    const bootstrapFromSnapshot = async (): Promise<void> => {
-      await runSnapshotRecovery("bootstrap");
+    const bootstrapFromSnapshot = async (
+      preloadedSnapshot?: OrchestrationReadModel,
+    ): Promise<void> => {
+      await runSnapshotRecovery("bootstrap", preloadedSnapshot);
     };
     bootstrapFromSnapshotRef.current = bootstrapFromSnapshot;
 

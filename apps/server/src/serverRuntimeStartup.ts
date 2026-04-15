@@ -5,19 +5,7 @@ import {
   ProjectId,
   ThreadId,
 } from "@codewithme/contracts";
-import {
-  Data,
-  Deferred,
-  Effect,
-  Exit,
-  Layer,
-  Option,
-  Path,
-  Queue,
-  Ref,
-  Scope,
-  ServiceMap,
-} from "effect";
+import { Data, Deferred, Effect, Exit, Layer, Path, Queue, Ref, Scope, ServiceMap } from "effect";
 
 import { ServerConfig } from "./config";
 import { Keybindings } from "./keybindings";
@@ -225,7 +213,6 @@ const publishGeminiUsageStats = Effect.gen(function* () {
 
 const autoBootstrapWelcome = Effect.gen(function* () {
   const serverConfig = yield* ServerConfig;
-  const projectionReadModelQuery = yield* ProjectionSnapshotQuery;
   const orchestrationEngine = yield* OrchestrationEngineService;
   const path = yield* Path.Path;
 
@@ -234,13 +221,14 @@ const autoBootstrapWelcome = Effect.gen(function* () {
 
   if (serverConfig.autoBootstrapProjectFromCwd) {
     yield* Effect.gen(function* () {
-      const existingProject = yield* projectionReadModelQuery.getActiveProjectByWorkspaceRoot(
-        serverConfig.cwd,
+      let readModel = yield* orchestrationEngine.getReadModel();
+      const existingProject = readModel.projects.find(
+        (p) => p.workspaceRoot === serverConfig.cwd && p.deletedAt === null,
       );
       let nextProjectId: ProjectId;
       let nextProjectDefaultModelSelection: ModelSelection;
 
-      if (Option.isNone(existingProject)) {
+      if (!existingProject) {
         const createdAt = new Date().toISOString();
         nextProjectId = ProjectId.makeUnsafe(crypto.randomUUID());
         const bootstrapProjectTitle = path.basename(serverConfig.cwd) || "project";
@@ -257,17 +245,20 @@ const autoBootstrapWelcome = Effect.gen(function* () {
           defaultModelSelection: nextProjectDefaultModelSelection,
           createdAt,
         });
+        // Re-read model after dispatch to include newly created project
+        readModel = yield* orchestrationEngine.getReadModel();
       } else {
-        nextProjectId = existingProject.value.id;
-        nextProjectDefaultModelSelection = existingProject.value.defaultModelSelection ?? {
+        nextProjectId = existingProject.id;
+        nextProjectDefaultModelSelection = existingProject.defaultModelSelection ?? {
           provider: "codex",
           model: "gpt-5-codex",
         };
       }
 
-      const existingThreadId =
-        yield* projectionReadModelQuery.getFirstActiveThreadIdByProjectId(nextProjectId);
-      if (Option.isNone(existingThreadId)) {
+      const existingThread = readModel.threads.find(
+        (t) => t.projectId === nextProjectId && t.deletedAt === null,
+      );
+      if (!existingThread) {
         const createdAt = new Date().toISOString();
         const createdThreadId = ThreadId.makeUnsafe(crypto.randomUUID());
         yield* orchestrationEngine.dispatch({
@@ -287,10 +278,13 @@ const autoBootstrapWelcome = Effect.gen(function* () {
         bootstrapThreadId = createdThreadId;
       } else {
         bootstrapProjectId = nextProjectId;
-        bootstrapThreadId = existingThreadId.value;
+        bootstrapThreadId = existingThread.id;
       }
     });
   }
+
+  // Snapshot after all dispatches are settled — includes newly created project/thread
+  const snapshot = yield* orchestrationEngine.getReadModel();
 
   const segments = serverConfig.cwd.split(/[/\\]/).filter(Boolean);
   const projectName = segments[segments.length - 1] ?? "project";
@@ -300,6 +294,7 @@ const autoBootstrapWelcome = Effect.gen(function* () {
     projectName,
     ...(bootstrapProjectId ? { bootstrapProjectId } : {}),
     ...(bootstrapThreadId ? { bootstrapThreadId } : {}),
+    snapshot,
   } as const;
 });
 
@@ -375,14 +370,17 @@ const makeServerRuntimeStartup = Effect.gen(function* () {
       ),
     );
 
-    yield* Effect.logDebug("startup phase: starting orchestration reactors");
-    yield* runStartupPhase(
-      "reactors.start",
-      orchestrationReactor.start().pipe(Scope.provide(reactorScope)),
+    yield* Effect.logDebug("startup phase: starting reactors and preparing welcome payload");
+    const [, welcome] = yield* Effect.all(
+      [
+        runStartupPhase(
+          "reactors.start",
+          orchestrationReactor.start().pipe(Scope.provide(reactorScope)),
+        ),
+        runStartupPhase("welcome.prepare", autoBootstrapWelcome),
+      ],
+      { concurrency: "unbounded" },
     );
-
-    yield* Effect.logDebug("startup phase: preparing welcome payload");
-    const welcome = yield* runStartupPhase("welcome.prepare", autoBootstrapWelcome);
     yield* Effect.logDebug("startup phase: publishing welcome event", {
       cwd: welcome.cwd,
       projectName: welcome.projectName,

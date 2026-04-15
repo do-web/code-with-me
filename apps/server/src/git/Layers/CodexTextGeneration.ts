@@ -23,6 +23,7 @@ import {
 } from "../Prompts.ts";
 import {
   normalizeCliError,
+  sanitizeCliErrorDetail,
   sanitizeCommitSubject,
   sanitizePrTitle,
   sanitizeThreadTitle,
@@ -215,15 +216,11 @@ const makeCodexTextGeneration = Effect.gen(function* () {
       );
 
       if (exitCode !== 0) {
-        const stderrDetail = stderr.trim();
-        const stdoutDetail = stdout.trim();
-        const detail = stderrDetail.length > 0 ? stderrDetail : stdoutDetail;
+        const rawOutput = stderr.trim() || stdout.trim();
+        const detail = sanitizeCliErrorDetail(rawOutput, exitCode);
         return yield* new TextGenerationError({
           operation,
-          detail:
-            detail.length > 0
-              ? `Codex CLI command failed: ${detail}`
-              : `Codex CLI command failed with code ${exitCode}.`,
+          detail: `Codex CLI failed (exit ${exitCode}): ${detail}`,
         });
       }
     });

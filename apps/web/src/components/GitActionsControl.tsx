@@ -129,9 +129,7 @@ function getMenuActionDisabledReason({
 
   const hasBranch = gitStatus.branch !== null;
   const hasChanges = gitStatus.hasWorkingTreeChanges;
-  const hasOpenPr = gitStatus.pr?.state === "open";
   const isAhead = gitStatus.aheadCount > 0;
-  const isBehind = gitStatus.behindCount > 0;
 
   if (item.id === "commit") {
     if (!hasChanges) {
@@ -147,9 +145,6 @@ function getMenuActionDisabledReason({
     if (hasChanges) {
       return "Commit or stash local changes before pushing.";
     }
-    if (isBehind) {
-      return "Branch is behind upstream. Pull/rebase before pushing.";
-    }
     if (!gitStatus.hasUpstream && !hasOriginRemote) {
       return 'Add an "origin" remote before pushing.';
     }
@@ -159,25 +154,7 @@ function getMenuActionDisabledReason({
     return "Push is currently unavailable.";
   }
 
-  if (hasOpenPr) {
-    return "View PR is currently unavailable.";
-  }
-  if (!hasBranch) {
-    return "Detached HEAD: checkout a branch before creating a PR.";
-  }
-  if (hasChanges) {
-    return "Commit local changes before creating a PR.";
-  }
-  if (!gitStatus.hasUpstream && !hasOriginRemote) {
-    return 'Add an "origin" remote before creating a PR.';
-  }
-  if (!isAhead) {
-    return "No local commits to include in a PR.";
-  }
-  if (isBehind) {
-    return "Branch is behind upstream. Pull/rebase before creating a PR.";
-  }
-  return "Create PR is currently unavailable.";
+  return "View PR is currently unavailable.";
 }
 
 const COMMIT_DIALOG_TITLE = "Commit changes";
@@ -196,10 +173,7 @@ function GitQuickActionIcon({ quickAction }: { quickAction: GitQuickAction }) {
   if (quickAction.kind === "run_pull") return <InfoIcon className={iconClassName} />;
   if (quickAction.kind === "run_action") {
     if (quickAction.action === "commit") return <GitCommitIcon className={iconClassName} />;
-    if (quickAction.action === "push" || quickAction.action === "commit_push") {
-      return <CloudUploadIcon className={iconClassName} />;
-    }
-    return <GitHubIcon className={iconClassName} />;
+    return <CloudUploadIcon className={iconClassName} />;
   }
   if (quickAction.label === "Commit") return <GitCommitIcon className={iconClassName} />;
   return <InfoIcon className={iconClassName} />;
@@ -412,12 +386,7 @@ export default function GitActionsControl({ gitCwd, activeThreadId }: GitActions
         requiresDefaultBranchConfirmation(action, actionIsDefaultBranch) &&
         actionBranch
       ) {
-        if (
-          action !== "push" &&
-          action !== "create_pr" &&
-          action !== "commit_push" &&
-          action !== "commit_push_pr"
-        ) {
+        if (action !== "push" && action !== "commit_push") {
           return;
         }
         setPendingDefaultBranchAction({
@@ -437,9 +406,6 @@ export default function GitActionsControl({ gitCwd, activeThreadId }: GitActions
         hasCustomCommitMessage: !!commitMessage?.trim(),
         hasWorkingTreeChanges: !!actionStatus?.hasWorkingTreeChanges,
         featureBranch,
-        shouldPushBeforePr:
-          action === "create_pr" &&
-          (!actionStatus?.hasUpstream || (actionStatus?.aheadCount ?? 0) > 0),
       });
       const scopedToastData = threadToastData ? { ...threadToastData } : undefined;
       const actionId = randomUUID();
@@ -701,10 +667,6 @@ export default function GitActionsControl({ gitCwd, activeThreadId }: GitActions
       void runGitActionWithToast({ action: "push" });
       return;
     }
-    if (item.dialogAction === "create_pr") {
-      void runGitActionWithToast({ action: "create_pr" });
-      return;
-    }
     setExcludedFiles(new Set());
     setIsEditingFiles(false);
     setIsCommitDialogOpen(true);
@@ -853,16 +815,17 @@ export default function GitActionsControl({ gitCwd, activeThreadId }: GitActions
               })}
               {gitStatusForActions?.branch === null && (
                 <p className="px-2 py-1.5 text-xs text-warning">
-                  Detached HEAD: create and checkout a branch to enable push and PR actions.
+                  Detached HEAD: create and checkout a branch to enable push.
                 </p>
               )}
               {gitStatusForActions &&
                 gitStatusForActions.branch !== null &&
                 !gitStatusForActions.hasWorkingTreeChanges &&
-                gitStatusForActions.behindCount > 0 &&
-                gitStatusForActions.aheadCount === 0 && (
-                  <p className="px-2 py-1.5 text-xs text-warning">
-                    Behind upstream. Pull/rebase first.
+                gitStatusForActions.behindCount > 0 && (
+                  <p className="px-2 py-1.5 text-xs text-muted-foreground">
+                    {gitStatusForActions.aheadCount > 0
+                      ? `${gitStatusForActions.aheadCount} ahead, ${gitStatusForActions.behindCount} behind upstream.`
+                      : "Behind upstream. Pull to update."}
                   </p>
                 )}
               {gitStatusError && (

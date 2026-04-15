@@ -1408,13 +1408,17 @@ function createWindow(): BrowserWindow {
 
   if (!isDevelopment) {
     window.webContents.on("before-input-event", (event, input) => {
+      // Block only the platform-native reload shortcut so that terminal
+      // control sequences (e.g. Ctrl+R for reverse search) still reach the
+      // renderer / xterm.js.
+      //   macOS:        Cmd+R / Cmd+Shift+R  (meta key)
+      //   Windows/Linux: Ctrl+R / Ctrl+Shift+R (control key)
+      const isMac = process.platform === "darwin";
+      const hasReloadModifier = isMac ? input.meta && !input.control : input.control && !input.meta;
       const isReload =
-        input.key.toLowerCase() === "r" && (input.meta || input.control) && !input.alt;
+        input.key.toLowerCase() === "r" && hasReloadModifier && !input.alt && !input.shift;
       const isForceReload =
-        input.key.toLowerCase() === "r" &&
-        input.shift &&
-        (input.meta || input.control) &&
-        !input.alt;
+        input.key.toLowerCase() === "r" && hasReloadModifier && input.shift && !input.alt;
       const isF5 = input.key === "F5";
       if (isReload || isForceReload || isF5) {
         event.preventDefault();

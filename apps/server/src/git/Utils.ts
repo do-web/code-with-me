@@ -74,6 +74,38 @@ export function sanitizeThreadTitle(raw: string): string {
   return `${normalized.slice(0, 47).trimEnd()}...`;
 }
 
+/**
+ * Strip CLI banner/config blocks from raw CLI output to extract the meaningful
+ * error message. Both Codex and Claude CLIs print verbose headers before the
+ * actual error.
+ *
+ * Returns a short, user-facing detail string (max ~200 chars).
+ */
+export function sanitizeCliErrorDetail(raw: string, exitCode: number): string {
+  if (raw.length === 0) {
+    return `Process exited with code ${exitCode}.`;
+  }
+
+  // Strip Codex-style banner: "OpenAI Codex …\n--------\n…\n--------"
+  let cleaned = raw.replace(/^OpenAI Codex[^\n]*\n-{4,}\n[\s\S]*?\n-{4,}\n?/, "");
+
+  // Strip Claude-style banner: "Claude Code …\n--------\n…\n--------"
+  cleaned = cleaned.replace(/^Claude[^\n]*\n-{4,}\n[\s\S]*?\n-{4,}\n?/, "");
+
+  cleaned = cleaned.trim();
+
+  if (cleaned.length === 0) {
+    return `Process exited with code ${exitCode}.`;
+  }
+
+  // Take only the first meaningful line(s), skip prompt echo
+  const firstLine = cleaned.split(/\r?\n/)[0]?.trim() ?? "";
+  if (firstLine.length > 200) {
+    return `${firstLine.slice(0, 197)}...`;
+  }
+  return firstLine || `Process exited with code ${exitCode}.`;
+}
+
 /** CLI name to human-readable label, e.g. "codex" → "Codex CLI (`codex`)" */
 function cliLabel(cliName: string): string {
   const capitalized = cliName.charAt(0).toUpperCase() + cliName.slice(1);

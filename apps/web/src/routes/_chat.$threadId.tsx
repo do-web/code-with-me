@@ -278,7 +278,8 @@ function ChatThreadRouteView() {
       params: { threadId },
       search: (previous) => {
         const rest = stripDiffSearchParams(previous);
-        return { ...rest, diff: "1" };
+        // Explicitly unset `changes` so retainSearchParams middleware doesn't re-add it
+        return { ...rest, diff: "1", changes: undefined };
       },
     });
   }, [navigate, threadId]);
@@ -295,7 +296,8 @@ function ChatThreadRouteView() {
       params: { threadId },
       search: (previous) => {
         const rest = stripDiffSearchParams(previous);
-        return { ...rest, changes: "1" };
+        // Explicitly unset `diff` so retainSearchParams middleware doesn't re-add it
+        return { ...rest, changes: "1", diff: undefined };
       },
     });
   }, [navigate, threadId]);

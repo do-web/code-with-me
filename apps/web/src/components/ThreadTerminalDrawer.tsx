@@ -609,13 +609,15 @@ function TerminalViewport({
         const activeFitAddon = fitAddonRef.current;
         if (!activeTerminal || !activeFitAddon) return;
         activeFitAddon.fit();
+        const cols = Math.max(activeTerminal.cols, MIN_TERMINAL_COLS);
+        const rows = Math.max(activeTerminal.rows, MIN_TERMINAL_ROWS);
         const snapshot = await api.terminal.open({
           projectId,
           terminalId,
           cwd,
           ...(worktreePath !== undefined ? { worktreePath } : {}),
-          cols: activeTerminal.cols,
-          rows: activeTerminal.rows,
+          cols,
+          rows,
           ...(runtimeEnv ? { env: runtimeEnv } : {}),
         });
         if (disposed) return;

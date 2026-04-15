@@ -635,10 +635,12 @@ function ProjectSortMenu({
 function SortableProjectItem({
   projectId,
   disabled = false,
+  className,
   children,
 }: {
   projectId: ProjectId;
   disabled?: boolean;
+  className?: string;
   children: (handleProps: SortableProjectHandleProps) => ReactNode;
 }) {
   const {
@@ -660,7 +662,7 @@ function SortableProjectItem({
       }}
       className={`group/menu-item relative rounded-md ${
         isDragging ? "z-20 opacity-80" : ""
-      } ${isOver && !isDragging ? "ring-1 ring-primary/40" : ""}`}
+      } ${isOver && !isDragging ? "ring-1 ring-primary/40" : ""} ${className ?? ""}`}
       data-sidebar="menu-item"
       data-slot="sidebar-menu-item"
     >
@@ -1652,7 +1654,6 @@ export default function Sidebar() {
         <div className="group/project-header relative">
           <SidebarMenuButton
             ref={isManualProjectSorting ? dragHandleProps?.setActivatorNodeRef : undefined}
-            size="sm"
             className={`gap-2 px-2 py-1.5 text-left hover:bg-accent group-hover/project-header:bg-accent group-hover/project-header:text-sidebar-accent-foreground ${
               isManualProjectSorting ? "cursor-grab active:cursor-grabbing" : "cursor-pointer"
             }`}
@@ -1693,7 +1694,7 @@ export default function Sidebar() {
               />
             )}
             <ProjectFavicon cwd={project.cwd} />
-            <span className="flex-1 truncate text-sm font-medium text-foreground/90">
+            <span className="flex-1 truncate text-sm font-semibold text-foreground/90">
               {project.name}
             </span>
           </SidebarMenuButton>
@@ -1757,7 +1758,7 @@ export default function Sidebar() {
 
         <SidebarMenuSub
           ref={attachThreadListAutoAnimateRef}
-          className="mx-1 my-0 w-full translate-x-0 gap-0.5 overflow-hidden px-1.5 py-0"
+          className="mx-1 my-0 ml-4 w-full translate-x-0 gap-0.5 overflow-hidden px-1.5 py-0"
         >
           {shouldShowThreadPanel && showEmptyThreadState ? (
             <SidebarMenuSubItem className="w-full" data-thread-selection-safe>
@@ -2233,6 +2234,7 @@ export default function Sidebar() {
                         <SortableProjectItem
                           key={renderedProject.project.id}
                           projectId={renderedProject.project.id}
+                          className={renderedProject.project.expanded ? "mb-2" : ""}
                         >
                           {(dragHandleProps) => renderProjectItem(renderedProject, dragHandleProps)}
                         </SortableProjectItem>
@@ -2243,7 +2245,7 @@ export default function Sidebar() {
               ) : (
                 <SidebarMenu ref={attachProjectListAutoAnimateRef}>
                   {renderedProjects.map((renderedProject) => (
-                    <SidebarMenuItem key={renderedProject.project.id} className="rounded-md">
+                    <SidebarMenuItem key={renderedProject.project.id} className={`rounded-md ${renderedProject.project.expanded ? "mb-2" : ""}`}>
                       {renderProjectItem(renderedProject, null)}
                     </SidebarMenuItem>
                   ))}

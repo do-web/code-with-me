@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { Suspense, lazy, use, useCallback, useEffect, useMemo, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { CodeEditor } from "./CodeEditor";
 import { useFileExplorerStore } from "../fileExplorerStore";
@@ -8,12 +8,17 @@ import { createDiffExtension, parseDiffForDecorations } from "../lib/diffDecorat
 import { ensureNativeApi } from "../nativeApi";
 import { toastManager } from "./ui/toast";
 import { Spinner } from "./ui/spinner";
+import { ScrollArea } from "./ui/scroll-area";
+
+const ReactMarkdown = lazy(() => import("react-markdown"));
+const remarkGfmPromise = import("remark-gfm").then((m) => m.default);
 
 export function EditorView({ relativePath }: { relativePath: string }) {
   const openFiles = useFileExplorerStore((s) => s.openFiles);
   const setFileDirty = useFileExplorerStore((s) => s.setFileDirty);
   const markFileSaved = useFileExplorerStore((s) => s.markFileSaved);
   const showDiff = useFileExplorerStore((s) => relativePath in s.diffViewPaths);
+  const showMarkdown = useFileExplorerStore((s) => relativePath in s.markdownViewPaths);
 
   const file = openFiles.find((f) => f.relativePath === relativePath);
   const cwd = file?.cwd ?? "";
@@ -110,6 +115,25 @@ export function EditorView({ relativePath }: { relativePath: string }) {
     );
   }
 
+  // Markdown preview mode
+  if (showMarkdown) {
+    return (
+      <div className="flex min-h-0 flex-1 flex-col">
+        <ScrollArea className="flex-1">
+          <Suspense
+            fallback={
+              <div className="flex items-center justify-center py-12">
+                <Spinner className="size-5" />
+              </div>
+            }
+          >
+            <MarkdownPreview content={editorValueRef.current || data?.contents || ""} />
+          </Suspense>
+        </ScrollArea>
+      </div>
+    );
+  }
+
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <CodeEditor
@@ -118,6 +142,18 @@ export function EditorView({ relativePath }: { relativePath: string }) {
         onChange={handleChange}
         extraExtensions={diffExtensions}
       />
+    </div>
+  );
+}
+
+// ── Markdown preview ─────────────────────────────────────────────────
+
+function MarkdownPreview({ content }: { content: string }) {
+  const gfm = use(remarkGfmPromise);
+
+  return (
+    <div className="prose prose-sm dark:prose-invert mx-auto w-full max-w-4xl px-8 py-6">
+      <ReactMarkdown remarkPlugins={[gfm]}>{content}</ReactMarkdown>
     </div>
   );
 }

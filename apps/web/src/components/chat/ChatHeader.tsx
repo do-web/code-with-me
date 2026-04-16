@@ -97,13 +97,6 @@ export const ChatHeader = memo(function ChatHeader({
         )}
       </div>
       <div className="flex shrink-0 items-center justify-end gap-2 @3xl/header-actions:gap-3">
-        {packageScripts && packageScripts.length > 0 && packageManager && (
-          <PackageScriptsDropdown
-            scripts={packageScripts}
-            packageManager={packageManager}
-            onRunScript={onRunPackageScript}
-          />
-        )}
         {activeProjectScripts && (
           <ProjectScriptsControl
             scripts={activeProjectScripts}
@@ -113,6 +106,13 @@ export const ChatHeader = memo(function ChatHeader({
             onAddScript={onAddProjectScript}
             onUpdateScript={onUpdateProjectScript}
             onDeleteScript={onDeleteProjectScript}
+          />
+        )}
+        {packageScripts && packageScripts.length > 0 && packageManager && (
+          <PackageScriptsDropdown
+            scripts={packageScripts}
+            packageManager={packageManager}
+            onRunScript={onRunPackageScript}
           />
         )}
         {activeProjectName && (

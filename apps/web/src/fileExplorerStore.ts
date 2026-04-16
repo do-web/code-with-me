@@ -20,6 +20,8 @@ interface FileExplorerState {
   activeFilePath: string | null;
   /** Files currently showing diff view instead of editor */
   diffViewPaths: Record<string, true>;
+  /** Files currently showing markdown preview instead of editor */
+  markdownViewPaths: Record<string, true>;
 }
 
 interface FileExplorerActions {
@@ -32,6 +34,7 @@ interface FileExplorerActions {
   setFileDirty: (relativePath: string, dirty: boolean) => void;
   markFileSaved: (relativePath: string) => void;
   toggleDiffView: (relativePath: string) => void;
+  toggleMarkdownView: (relativePath: string) => void;
 }
 
 // ── Language detection ───────────────────────────────────────────────
@@ -77,6 +80,7 @@ export const useFileExplorerStore = create<FileExplorerState & FileExplorerActio
     openFiles: [],
     activeFilePath: null,
     diffViewPaths: {},
+    markdownViewPaths: {},
 
     toggleExplorer: () =>
       set((state) => ({
@@ -169,6 +173,17 @@ export const useFileExplorerStore = create<FileExplorerState & FileExplorerActio
           next[relativePath] = true;
         }
         return { diffViewPaths: next };
+      }),
+
+    toggleMarkdownView: (relativePath) =>
+      set((state) => {
+        const next = { ...state.markdownViewPaths };
+        if (relativePath in next) {
+          delete next[relativePath];
+        } else {
+          next[relativePath] = true;
+        }
+        return { markdownViewPaths: next };
       }),
   }),
 );

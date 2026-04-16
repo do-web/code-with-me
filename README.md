@@ -58,6 +58,18 @@ Available as **desktop app** (Electron) and **web interface**.
 - Package.json script discovery
 - Workspace file search with caching
 
+### File Explorer & Code Editor
+
+- Integrated file explorer panel with resizable sidebar
+- Lazy-loading directory tree with project file browsing
+- Code editing with CodeMirror 6 (syntax highlighting, bracket matching, folding)
+- Multi-tab file editing with unsaved change indicators
+- Inline git diff decorations (added/deleted lines highlighted directly in editor)
+- Markdown preview with GFM support (tables, task lists, strikethrough)
+- Uncommitted file highlighting in explorer tree with insertion/deletion stats
+- File save via Cmd/Ctrl+S with workspace write-back
+- Binary file and large file detection (5MB limit)
+
 ### Diff & Code Review
 
 - Unified diff rendering with syntax highlighting

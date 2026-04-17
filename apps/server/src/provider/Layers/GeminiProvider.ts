@@ -48,6 +48,7 @@ const EXCLUDED_MODEL_PATTERNS = [
   "tool-modify",
   "browser-agent",
   "mcp-client",
+  "embedding",
 ];
 
 /** Resolve the real binary path (follows symlinks, resolves `which`). */
@@ -81,7 +82,13 @@ function findGeminiBundleDir(binaryPath: string): string | null {
   return null;
 }
 
-/** Extract model slugs from Gemini CLI bundle JS files. */
+/**
+ * Extract valid model slugs from Gemini CLI bundle JS files.
+ *
+ * Strategy: look for `GEMINI_MODEL` constant declarations (e.g.
+ * `var DEFAULT_GEMINI_MODEL = "gemini-2.5-pro"`) which are authoritative.
+ * Falls back to a broader regex scan filtered through EXCLUDED_MODEL_PATTERNS.
+ */
 function discoverModelsFromBundle(binaryPath: string): ServerProviderModel[] {
   const bundleDir = findGeminiBundleDir(binaryPath);
   if (!bundleDir) return [];
@@ -91,11 +98,14 @@ function discoverModelsFromBundle(binaryPath: string): ServerProviderModel[] {
     const files = fs.readdirSync(bundleDir).filter((f) => f.endsWith(".js"));
     for (const file of files) {
       const content = fs.readFileSync(path.join(bundleDir, file), "utf-8");
-      const matches = content.matchAll(/"(gemini-[\d]+(?:\.\d+)?-(?:pro|flash)(?:-[a-z0-9-]*)?)/g);
-      for (const match of matches) {
+
+      // Primary: extract from GEMINI*MODEL constant declarations (authoritative)
+      const constMatches = content.matchAll(
+        /var\s+\w*GEMINI\w*MODEL\w*\s*=\s*"(gemini-[a-z0-9.-]+)"/g,
+      );
+      for (const match of constMatches) {
         const slug = match[1]!;
         if (EXCLUDED_MODEL_PATTERNS.some((p) => slug.includes(p))) continue;
-        if (/^gemini-\d+(?:\.\d+)?$/.test(slug)) continue;
         models.add(slug);
       }
     }

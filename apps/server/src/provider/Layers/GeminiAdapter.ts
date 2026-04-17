@@ -17,16 +17,19 @@ import {
   ThreadId,
   TurnId,
 } from "@codewithme/contracts";
-import { Cause, Effect, Layer, PubSub, Ref, Stream } from "effect";
+import { Cause, Duration, Effect, Fiber, Layer, Option, PubSub, Ref, Stream } from "effect";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 
 import { ProviderAdapterProcessError, ProviderAdapterSessionNotFoundError } from "../Errors.ts";
 import { GeminiAdapter, type GeminiAdapterShape } from "../Services/GeminiAdapter.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { type EventNdjsonLogger } from "./EventNdjsonLogger.ts";
-import { collectStreamAsString, spawnAndCollect } from "../providerSnapshot.ts";
+import { collectStreamAsString } from "../providerSnapshot.ts";
 
 const PROVIDER = "gemini" as const;
+
+/** Maximum time to wait for a single Gemini CLI turn before timing out. */
+const TURN_TIMEOUT = Duration.minutes(2);
 
 // ── Gemini stream-json types ───────────────────────────────────────
 
@@ -77,6 +80,68 @@ type GeminiStreamEvent =
   | GeminiStreamToolResult
   | GeminiStreamResult;
 
+// ── Stderr error extraction ───────────────────────────────────────
+
+/** Known Gemini CLI error patterns surfaced on stderr. */
+const STDERR_ERROR_PATTERNS: Array<{ pattern: RegExp; message: string }> = [
+  {
+    pattern: /exhausted your capacity/i,
+    message: "Rate limit reached for this model. Try again later or switch to a different model.",
+  },
+  { pattern: /quota exceeded/i, message: "API quota exceeded. Try again later." },
+  {
+    pattern: /permission denied|unauthorized|unauthenticated/i,
+    message: "Authentication failed. Run `gemini` interactively to re-authenticate.",
+  },
+  { pattern: /model .* not found|invalid model/i, message: "Model not found or not available." },
+];
+
+function extractStderrError(stderr: string): string | null {
+  for (const { pattern, message } of STDERR_ERROR_PATTERNS) {
+    if (pattern.test(stderr)) return message;
+  }
+  return null;
+}
+
+class GeminiFatalStderrError {
+  readonly _tag = "GeminiFatalStderrError";
+  constructor(readonly message: string) {}
+}
+
+/**
+ * Spawn the Gemini CLI and collect output, but abort early if stderr contains
+ * a fatal error (e.g. rate limits). This avoids waiting for the CLI's infinite
+ * retry loop to complete.
+ */
+const spawnGeminiTurn = (binaryPath: string, command: ChildProcess.Command) =>
+  Effect.gen(function* () {
+    const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+    const child = yield* spawner.spawn(command);
+
+    // Stream stderr line-by-line — fails on fatal patterns, otherwise never resolves.
+    // This ensures it can only win the race by failing, not by completing normally.
+    const stderrWatcher = child.stderr.pipe(
+      Stream.decodeText(),
+      Stream.splitLines,
+      Stream.runForEach((line) => {
+        const error = extractStderrError(line);
+        return error ? Effect.fail(new GeminiFatalStderrError(error)) : Effect.void;
+      }),
+      Effect.andThen(Effect.never),
+    );
+
+    // Collect stdout and wait for exit
+    const outputCollector = Effect.all(
+      [collectStreamAsString(child.stdout), child.exitCode.pipe(Effect.map(Number))],
+      { concurrency: "unbounded" },
+    ).pipe(Effect.map(([stdout, code]) => ({ stdout, code })));
+
+    // Race: outputCollector succeeds normally, stderrWatcher can only fail.
+    // If stderr detects a fatal error, it fails the race immediately.
+    const result = yield* Effect.raceFirst(outputCollector, stderrWatcher);
+    return result;
+  }).pipe(Effect.scoped);
+
 // ── Session state ──────────────────────────────────────────────────
 
 interface GeminiSessionState {
@@ -84,6 +149,7 @@ interface GeminiSessionState {
   geminiSessionId: string | undefined;
   turnCount: number;
   currentTurnId: TurnId | undefined;
+  currentFiber: Fiber.Fiber<void, never> | undefined;
   turns: Array<{ id: TurnId; items: Array<unknown> }>;
   stopped: boolean;
 }
@@ -170,17 +236,48 @@ export function makeGeminiAdapterLive(_options?: GeminiAdapterLiveOptions) {
             args.push("--resume", "latest");
           }
 
-          // Use spawnAndCollect — proven to work (same as version check)
           const command = ChildProcess.make(binaryPath, args, {
             shell: process.platform === "win32",
           });
-          const result = yield* spawnAndCollect(binaryPath, command);
+          const maybeResult = yield* spawnGeminiTurn(binaryPath, command).pipe(
+            Effect.catchTag("GeminiFatalStderrError", (err) =>
+              Effect.succeed({ stdout: "", code: 1, fatalError: err.message }),
+            ),
+            Effect.timeoutOption(TURN_TIMEOUT),
+          );
+
+          if (Option.isNone(maybeResult)) {
+            yield* emit({
+              ...stamp(threadId, turnId),
+              type: "turn.completed",
+              payload: {
+                state: "failed",
+                errorMessage:
+                  "Gemini CLI timed out. The model may be overloaded — try again later or switch models.",
+              },
+            });
+            return;
+          }
+
+          const result = maybeResult.value;
+
+          // Fatal stderr error detected (e.g. rate limit) — fail immediately
+          if ("fatalError" in result && result.fatalError) {
+            yield* emit({
+              ...stamp(threadId, turnId),
+              type: "turn.completed",
+              payload: { state: "failed", errorMessage: result.fatalError as string },
+            });
+            return;
+          }
+
           const exitCode = result.code;
 
           // Parse NDJSON lines from stdout
           const lines = result.stdout.split("\n").filter((l: string) => l.trim().length > 0);
           let fullText = "";
           let textItemStarted = false;
+          let hasResultEvent = false;
           const assistantItemId = RuntimeItemId.makeUnsafe(`gemini-msg-${turnId}`);
 
           for (const line of lines) {
@@ -256,6 +353,7 @@ export function makeGeminiAdapterLive(_options?: GeminiAdapterLiveOptions) {
               }
 
               case "result": {
+                hasResultEvent = true;
                 const res = ev as GeminiStreamResult;
 
                 if (textItemStarted) {
@@ -310,15 +408,16 @@ export function makeGeminiAdapterLive(_options?: GeminiAdapterLiveOptions) {
             }
           }
 
-          // If CLI exited non-zero without a result event
-          if (exitCode !== 0 && !lines.some((l) => l.includes('"type":"result"'))) {
+          // CLI exited without a result event — surface exit code
+          if (!hasResultEvent) {
+            const errorMessage =
+              exitCode !== 0
+                ? `Gemini CLI exited with code ${exitCode}`
+                : "Gemini CLI exited without producing a response.";
             yield* emit({
               ...stamp(threadId, turnId),
               type: "turn.completed",
-              payload: {
-                state: "failed",
-                errorMessage: `Gemini CLI exited with code ${exitCode}`,
-              },
+              payload: { state: "failed", errorMessage },
             });
           }
         });
@@ -351,6 +450,7 @@ export function makeGeminiAdapterLive(_options?: GeminiAdapterLiveOptions) {
                 geminiSessionId: undefined,
                 turnCount: 0,
                 currentTurnId: undefined,
+                currentFiber: undefined,
                 turns: [],
                 stopped: false,
               });
@@ -396,12 +496,14 @@ export function makeGeminiAdapterLive(_options?: GeminiAdapterLiveOptions) {
               payload: { model },
             });
 
-            // Run CLI in background via runFork
-            runFork(
+            // Run CLI in background via runFork — store fiber for interrupt support
+            const fiber = runFork(
               runGeminiTurn(input.threadId, turnId, prompt, model, state.geminiSessionId).pipe(
                 Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
-                Effect.catchCause((cause) =>
-                  emit({
+                Effect.catchCause((cause) => {
+                  // Fiber interruption (user cancel) — don't emit a failed turn
+                  if (Cause.hasInterruptsOnly(cause)) return Effect.void;
+                  return emit({
                     ...stamp(input.threadId, turnId),
                     type: "turn.completed",
                     payload: {
@@ -411,12 +513,13 @@ export function makeGeminiAdapterLive(_options?: GeminiAdapterLiveOptions) {
                           ? (Cause.squash(cause) as Error).message
                           : "Gemini CLI process failed",
                     },
-                  }),
-                ),
+                  });
+                }),
                 Effect.ensuring(
                   updateSession(input.threadId, (s) => ({
                     ...s,
                     currentTurnId: undefined,
+                    currentFiber: undefined,
                     session: {
                       ...s.session,
                       status: "ready" as const,
@@ -427,6 +530,8 @@ export function makeGeminiAdapterLive(_options?: GeminiAdapterLiveOptions) {
               ),
             );
 
+            yield* updateSession(input.threadId, (s) => ({ ...s, currentFiber: fiber }));
+
             return { threadId: input.threadId, turnId };
           }),
 
@@ -434,6 +539,10 @@ export function makeGeminiAdapterLive(_options?: GeminiAdapterLiveOptions) {
           Effect.gen(function* () {
             const state = yield* getSession(threadId);
             if (state.currentTurnId) {
+              // Interrupt the running fiber (kills the CLI process via Effect.scoped cleanup)
+              if (state.currentFiber) {
+                yield* Fiber.interrupt(state.currentFiber);
+              }
               yield* emit({
                 ...stamp(threadId, state.currentTurnId),
                 type: "turn.aborted",

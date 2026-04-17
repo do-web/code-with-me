@@ -34,7 +34,15 @@ export type ComposerProviderState = {
   modelPickerIconClassName?: string;
 };
 
+export type ProviderCommand = {
+  readonly command: string;
+  readonly label: string;
+  readonly description: string;
+};
+
 type ProviderRegistryEntry = {
+  commands: ReadonlyArray<ProviderCommand>;
+  supportsSkills: boolean;
   getState: (input: ComposerProviderStateInput) => ComposerProviderState;
   renderTraitsMenuContent: (input: {
     threadId: ThreadId;
@@ -98,6 +106,8 @@ function getProviderStateFromCapabilities(
 
 const composerProviderRegistry: Record<ProviderKind, ProviderRegistryEntry> = {
   codex: {
+    commands: [],
+    supportsSkills: false,
     getState: (input) => getProviderStateFromCapabilities(input),
     renderTraitsMenuContent: ({
       threadId,
@@ -130,6 +140,14 @@ const composerProviderRegistry: Record<ProviderKind, ProviderRegistryEntry> = {
     ),
   },
   claudeAgent: {
+    commands: [
+      {
+        command: "btw",
+        label: "/btw",
+        description: "Ask a quick side question without interrupting the main conversation",
+      },
+    ],
+    supportsSkills: true,
     getState: (input) => getProviderStateFromCapabilities(input),
     renderTraitsMenuContent: ({
       threadId,
@@ -162,6 +180,8 @@ const composerProviderRegistry: Record<ProviderKind, ProviderRegistryEntry> = {
     ),
   },
   gemini: {
+    commands: [],
+    supportsSkills: false,
     getState: (input) => getProviderStateFromCapabilities(input),
     renderTraitsMenuContent: ({
       threadId,
@@ -227,6 +247,16 @@ export function renderProviderTraitsPicker(input: {
   prompt: string;
   onPromptChange: (prompt: string) => void;
 }): ReactNode {
+  // Return null (falsy) so callers can gate surrounding separators correctly.
+  // A <TraitsPicker> element is always truthy even when it renders null internally.
+  const caps = getProviderModelCapabilities(input.models, input.model, input.provider);
+  if (
+    caps.reasoningEffortLevels.length === 0 &&
+    !caps.supportsThinkingToggle &&
+    caps.contextWindowOptions.length <= 1
+  ) {
+    return null;
+  }
   return composerProviderRegistry[input.provider].renderTraitsPicker({
     threadId: input.threadId,
     model: input.model,
@@ -235,4 +265,12 @@ export function renderProviderTraitsPicker(input: {
     prompt: input.prompt,
     onPromptChange: input.onPromptChange,
   });
+}
+
+export function getProviderCommands(provider: ProviderKind): ReadonlyArray<ProviderCommand> {
+  return composerProviderRegistry[provider].commands;
+}
+
+export function providerSupportsSkills(provider: ProviderKind): boolean {
+  return composerProviderRegistry[provider].supportsSkills;
 }

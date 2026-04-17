@@ -47,8 +47,8 @@ async function mountMenu(props?: { modelSelection?: ModelSelection; prompt?: str
     provider === "claudeAgent"
       ? [
           {
-            slug: "claude-opus-4-6",
-            name: "Claude Opus 4.6",
+            slug: "claude-opus-4-7",
+            name: "Claude Opus 4.7",
             isCustom: false,
             capabilities: {
               reasoningEffortLevels: [
@@ -159,7 +159,7 @@ describe("CompactComposerControlsMenu", () => {
 
   it("shows fast mode controls for Opus", async () => {
     await using _ = await mountMenu({
-      modelSelection: { provider: "claudeAgent", model: "claude-opus-4-6" },
+      modelSelection: { provider: "claudeAgent", model: "claude-opus-4-7" },
     });
 
     await page.getByLabelText("More composer controls").click();
@@ -224,7 +224,7 @@ describe("CompactComposerControlsMenu", () => {
     await using _ = await mountMenu({
       modelSelection: {
         provider: "claudeAgent",
-        model: "claude-opus-4-6",
+        model: "claude-opus-4-7",
         options: { effort: "high" },
       },
       prompt: "Ultrathink:\nInvestigate this",
@@ -243,7 +243,7 @@ describe("CompactComposerControlsMenu", () => {
     await using _ = await mountMenu({
       modelSelection: {
         provider: "claudeAgent",
-        model: "claude-opus-4-6",
+        model: "claude-opus-4-7",
         options: { effort: "high" },
       },
       prompt: "Ultrathink:\nplease ultrathink about this problem",

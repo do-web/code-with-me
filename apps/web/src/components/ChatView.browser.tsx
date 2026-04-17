@@ -2518,7 +2518,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
       stickyModelSelectionByProvider: {
         claudeAgent: {
           provider: "claudeAgent",
-          model: "claude-opus-4-6",
+          model: "claude-opus-4-7",
           options: {
             effort: "max",
             fastMode: true,
@@ -2553,7 +2553,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
         modelSelectionByProvider: {
           claudeAgent: {
             provider: "claudeAgent",
-            model: "claude-opus-4-6",
+            model: "claude-opus-4-7",
             options: {
               effort: "max",
               fastMode: true,

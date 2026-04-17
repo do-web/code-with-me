@@ -179,6 +179,8 @@ import { ComposerPendingUserInputPanel } from "./chat/ComposerPendingUserInputPa
 import { ComposerPlanFollowUpBanner } from "./chat/ComposerPlanFollowUpBanner";
 import {
   getComposerProviderState,
+  getProviderCommands,
+  providerSupportsSkills,
   renderProviderTraitsMenuContent,
   renderProviderTraitsPicker,
 } from "./chat/composerProviderRegistry";
@@ -1512,7 +1514,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
     }
 
     if (composerTrigger.kind === "slash-command") {
-      const slashCommandItems = [
+      const universalCommands = [
         {
           id: "slash:model",
           type: "slash-command",
@@ -1536,16 +1538,34 @@ export default function ChatView({ threadId }: ChatViewProps) {
         },
       ] satisfies ReadonlyArray<Extract<ComposerCommandItem, { type: "slash-command" }>>;
 
-      const skillItems: ComposerCommandItem[] = skills.map((s) => ({
-        id: `skill:${s.name}`,
-        type: "skill" as const,
-        name: s.name,
-        source: s.source,
-        label: `/${s.name}`,
-        description: s.description,
-      }));
+      const provider = selectedProvider;
+      const providerCommandItems: ComposerCommandItem[] = getProviderCommands(provider).map(
+        (cmd) => ({
+          id: `skill:${cmd.command}`,
+          type: "skill" as const,
+          name: cmd.command,
+          source: "command" as const,
+          label: cmd.label,
+          description: cmd.description,
+        }),
+      );
 
-      const allItems: ComposerCommandItem[] = [...slashCommandItems, ...skillItems];
+      const skillItems: ComposerCommandItem[] = providerSupportsSkills(provider)
+        ? skills.map((s) => ({
+            id: `skill:${s.name}`,
+            type: "skill" as const,
+            name: s.name,
+            source: s.source,
+            label: `/${s.name}`,
+            description: s.description,
+          }))
+        : [];
+
+      const allItems: ComposerCommandItem[] = [
+        ...universalCommands,
+        ...providerCommandItems,
+        ...skillItems,
+      ];
 
       const query = composerTrigger.query.trim().toLowerCase();
       if (!query) return allItems;
@@ -1572,7 +1592,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
         label: name,
         description: `${providerLabel} · ${slug}`,
       }));
-  }, [composerTrigger, searchableModelOptions, skills, workspaceEntries]);
+  }, [composerTrigger, searchableModelOptions, skills, workspaceEntries, selectedProvider]);
   const composerMenuOpen = Boolean(composerTrigger);
   const activeComposerMenuItem = useMemo(
     () =>

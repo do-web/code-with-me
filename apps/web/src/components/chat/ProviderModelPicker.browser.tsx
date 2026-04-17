@@ -61,8 +61,8 @@ const TEST_PROVIDERS: ReadonlyArray<ServerProvider> = [
     checkedAt: new Date().toISOString(),
     models: [
       {
-        slug: "claude-opus-4-6",
-        name: "Claude Opus 4.6",
+        slug: "claude-opus-4-7",
+        name: "Claude Opus 4.7",
         isCustom: false,
         capabilities: {
           reasoningEffortLevels: [
@@ -170,7 +170,7 @@ describe("ProviderModelPicker", () => {
   it("shows provider submenus when provider switching is allowed", async () => {
     const mounted = await mountPicker({
       provider: "claudeAgent",
-      model: "claude-opus-4-6",
+      model: "claude-opus-4-7",
       lockedProvider: null,
     });
 
@@ -191,7 +191,7 @@ describe("ProviderModelPicker", () => {
   it("opens provider submenus with a visible gap from the parent menu", async () => {
     const mounted = await mountPicker({
       provider: "claudeAgent",
-      model: "claude-opus-4-6",
+      model: "claude-opus-4-7",
       lockedProvider: null,
     });
 
@@ -236,7 +236,7 @@ describe("ProviderModelPicker", () => {
   it("shows models directly when the provider is locked mid-thread", async () => {
     const mounted = await mountPicker({
       provider: "claudeAgent",
-      model: "claude-opus-4-6",
+      model: "claude-opus-4-7",
       lockedProvider: "claudeAgent",
     });
 
@@ -304,7 +304,7 @@ describe("ProviderModelPicker", () => {
 
     const hidden = await mountPicker({
       provider: "claudeAgent",
-      model: "claude-opus-4-6",
+      model: "claude-opus-4-7",
       lockedProvider: null,
       providers: providersWithoutSpark,
     });
@@ -324,7 +324,7 @@ describe("ProviderModelPicker", () => {
 
     const visible = await mountPicker({
       provider: "claudeAgent",
-      model: "claude-opus-4-6",
+      model: "claude-opus-4-7",
       lockedProvider: null,
       providers: providersWithSpark,
     });
@@ -344,7 +344,7 @@ describe("ProviderModelPicker", () => {
   it("dispatches the canonical slug when a model is selected", async () => {
     const mounted = await mountPicker({
       provider: "claudeAgent",
-      model: "claude-opus-4-6",
+      model: "claude-opus-4-7",
       lockedProvider: "claudeAgent",
     });
 

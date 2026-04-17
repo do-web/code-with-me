@@ -344,6 +344,11 @@ export const TraitsPicker = memo(function TraitsPicker({
     ultrathinkPromptControlled,
   } = getSelectedTraits(provider, models, model, prompt, modelOptions, allowPromptInjectedEffort);
 
+  // No traits available for this provider/model — hide the picker entirely
+  if (effort === null && thinkingEnabled === null && contextWindowOptions.length <= 1) {
+    return null;
+  }
+
   const effortLabel = effort
     ? (effortLevels.find((l) => l.value === effort)?.label ?? effort)
     : null;

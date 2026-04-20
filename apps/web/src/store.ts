@@ -2,6 +2,7 @@ import {
   type OrchestrationEvent,
   type OrchestrationMessage,
   type OrchestrationProposedPlan,
+  type OrchestrationQueueItem,
   type ProjectId,
   type ProviderKind,
   ThreadId,
@@ -19,7 +20,13 @@ import {
   derivePendingApprovals,
   derivePendingUserInputs,
 } from "./session-logic";
-import { type ChatMessage, type Project, type SidebarThreadSummary, type Thread } from "./types";
+import {
+  type ChatMessage,
+  type Project,
+  type QueueItem,
+  type SidebarThreadSummary,
+  type Thread,
+} from "./types";
 
 // ── State ────────────────────────────────────────────────────────────
 
@@ -139,6 +146,42 @@ function mapProposedPlan(proposedPlan: OrchestrationProposedPlan): Thread["propo
   };
 }
 
+function mapQueueItemAttachment(
+  attachment: OrchestrationQueueItem["attachments"][number],
+): QueueItem["attachments"][number] {
+  if (attachment.type === "image") {
+    return {
+      type: "image",
+      id: attachment.id,
+      name: attachment.name,
+      mimeType: attachment.mimeType,
+      sizeBytes: attachment.sizeBytes,
+      previewUrl: toAttachmentPreviewUrl(attachmentPreviewRoutePath(attachment.id)),
+    };
+  }
+  return {
+    type: "document",
+    id: attachment.id,
+    name: attachment.name,
+    mimeType: attachment.mimeType,
+    sizeBytes: attachment.sizeBytes,
+  };
+}
+
+function mapQueueItem(item: OrchestrationQueueItem): QueueItem {
+  return {
+    id: item.id,
+    text: item.text,
+    attachments: item.attachments.map(mapQueueItemAttachment),
+    modelSelection: item.modelSelection ? normalizeModelSelection(item.modelSelection) : null,
+    runtimeMode: item.runtimeMode,
+    interactionMode: item.interactionMode,
+    status: item.status,
+    enqueuedAt: item.enqueuedAt,
+    updatedAt: item.updatedAt,
+  };
+}
+
 function mapTurnDiffSummary(
   checkpoint: OrchestrationCheckpointSummary,
 ): Thread["turnDiffSummaries"][number] {
@@ -175,6 +218,8 @@ function mapThread(thread: OrchestrationThread): Thread {
     worktreePath: thread.worktreePath,
     turnDiffSummaries: thread.checkpoints.map(mapTurnDiffSummary),
     activities: thread.activities.map((activity) => ({ ...activity })),
+    queueItems: thread.queueItems.map(mapQueueItem),
+    pendingTurnStart: thread.pendingTurnStart,
   };
 }
 
@@ -661,7 +706,9 @@ export function applyOrchestrationEvent(state: AppState, event: OrchestrationEve
         proposedPlans: [],
         activities: [],
         checkpoints: [],
+        queueItems: [],
         session: null,
+        pendingTurnStart: null,
       });
       const threads = existing
         ? state.threads.map((thread) => (thread.id === nextThread.id ? nextThread : thread))
@@ -770,15 +817,21 @@ export function applyOrchestrationEvent(state: AppState, event: OrchestrationEve
         runtimeMode: event.payload.runtimeMode,
         interactionMode: event.payload.interactionMode,
         pendingSourceProposedPlan: event.payload.sourceProposedPlan,
+        pendingTurnStart: event.payload.messageId,
         updatedAt: event.occurredAt,
       }));
     }
 
     case "thread.turn-interrupt-requested": {
+      const resetPending = updateThreadState(state, event.payload.threadId, (thread) =>
+        thread.pendingTurnStart === null
+          ? thread
+          : { ...thread, pendingTurnStart: null, updatedAt: event.occurredAt },
+      );
       if (event.payload.turnId === undefined) {
-        return state;
+        return resetPending;
       }
-      return updateThreadState(state, event.payload.threadId, (thread) => {
+      return updateThreadState(resetPending, event.payload.threadId, (thread) => {
         const latestTurn = thread.latestTurn;
         if (latestTurn === null || latestTurn.turnId !== event.payload.turnId) {
           return thread;
@@ -1079,6 +1132,120 @@ export function applyOrchestrationEvent(state: AppState, event: OrchestrationEve
     case "thread.approval-response-requested":
     case "thread.user-input-response-requested":
       return state;
+
+    case "thread.queue-item-enqueued": {
+      return updateThreadState(state, event.payload.threadId, (thread) => {
+        if (thread.queueItems.some((item) => item.id === event.payload.queueItemId)) {
+          return thread;
+        }
+        const attachments: QueueItem["attachments"] = event.payload.attachments.map((attachment) =>
+          attachment.type === "image"
+            ? {
+                type: "image" as const,
+                id: attachment.id,
+                name: attachment.name,
+                mimeType: attachment.mimeType,
+                sizeBytes: attachment.sizeBytes,
+                previewUrl: toAttachmentPreviewUrl(attachmentPreviewRoutePath(attachment.id)),
+              }
+            : {
+                type: "document" as const,
+                id: attachment.id,
+                name: attachment.name,
+                mimeType: attachment.mimeType,
+                sizeBytes: attachment.sizeBytes,
+              },
+        );
+        const item: QueueItem = {
+          id: event.payload.queueItemId,
+          text: event.payload.text,
+          attachments,
+          modelSelection: event.payload.modelSelection
+            ? normalizeModelSelection(event.payload.modelSelection)
+            : null,
+          runtimeMode: event.payload.runtimeMode,
+          interactionMode: event.payload.interactionMode,
+          status: "queued",
+          enqueuedAt: event.payload.enqueuedAt,
+          updatedAt: event.payload.enqueuedAt,
+        };
+        return {
+          ...thread,
+          queueItems: [...thread.queueItems, item],
+          updatedAt: event.occurredAt,
+        };
+      });
+    }
+
+    case "thread.queue-item-edited": {
+      return updateThreadState(state, event.payload.threadId, (thread) => {
+        const attachments: QueueItem["attachments"] = event.payload.attachments.map((attachment) =>
+          attachment.type === "image"
+            ? {
+                type: "image" as const,
+                id: attachment.id,
+                name: attachment.name,
+                mimeType: attachment.mimeType,
+                sizeBytes: attachment.sizeBytes,
+                previewUrl: toAttachmentPreviewUrl(attachmentPreviewRoutePath(attachment.id)),
+              }
+            : {
+                type: "document" as const,
+                id: attachment.id,
+                name: attachment.name,
+                mimeType: attachment.mimeType,
+                sizeBytes: attachment.sizeBytes,
+              },
+        );
+        const queueItems = thread.queueItems.map((item) =>
+          item.id === event.payload.queueItemId && item.status === "queued"
+            ? { ...item, text: event.payload.text, attachments, updatedAt: event.payload.updatedAt }
+            : item,
+        );
+        return {
+          ...thread,
+          queueItems,
+          updatedAt: event.occurredAt,
+        };
+      });
+    }
+
+    case "thread.queue-item-cancelled": {
+      return updateThreadState(state, event.payload.threadId, (thread) => {
+        const queueItems = thread.queueItems.map((item) =>
+          item.id === event.payload.queueItemId && item.status === "queued"
+            ? { ...item, status: "cancelled" as const, updatedAt: event.payload.cancelledAt }
+            : item,
+        );
+        return {
+          ...thread,
+          queueItems,
+          updatedAt: event.occurredAt,
+        };
+      });
+    }
+
+    case "thread.queue-item-dispatched": {
+      return updateThreadState(state, event.payload.threadId, (thread) => {
+        const queueItems = thread.queueItems.map((item) =>
+          item.id === event.payload.queueItemId && item.status === "queued"
+            ? { ...item, status: "dispatched" as const, updatedAt: event.payload.dispatchedAt }
+            : item,
+        );
+        return {
+          ...thread,
+          queueItems,
+          updatedAt: event.occurredAt,
+        };
+      });
+    }
+
+    case "thread.turn-completed":
+      return updateThreadState(state, event.payload.threadId, (thread) =>
+        thread.pendingTurnStart === null
+          ? thread
+          : { ...thread, pendingTurnStart: null, updatedAt: event.occurredAt },
+      );
   }
 
   return state;

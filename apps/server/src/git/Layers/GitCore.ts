@@ -1183,7 +1183,7 @@ export const makeGitCore = Effect.fn("makeGitCore")(function* (options?: {
     const statusResult = yield* executeGit(
       "GitCore.statusDetails.status",
       cwd,
-      ["status", "--porcelain=2", "--branch"],
+      ["status", "--porcelain=2", "--branch", "--untracked-files=all"],
       {
         allowNonZeroExit: true,
       },
@@ -1194,7 +1194,7 @@ export const makeGitCore = Effect.fn("makeGitCore")(function* (options?: {
       return yield* createGitCommandError(
         "GitCore.statusDetails.status",
         cwd,
-        ["status", "--porcelain=2", "--branch"],
+        ["status", "--porcelain=2", "--branch", "--untracked-files=all"],
         stderr || "git status failed",
       );
     }
@@ -2110,7 +2110,7 @@ export const makeGitCore = Effect.fn("makeGitCore")(function* (options?: {
       const statusResult = yield* executeGit(
         "GitCore.getFileDiff.status",
         cwd,
-        ["status", "--porcelain=2", "--", filePath],
+        ["status", "--porcelain=2", "--untracked-files=all", "--", filePath],
         { allowNonZeroExit: true },
       );
       const isUntracked = statusResult.stdout.split(/\r?\n/g).some((line) => line.startsWith("? "));
@@ -2165,7 +2165,7 @@ export const makeGitCore = Effect.fn("makeGitCore")(function* (options?: {
       const statusResult = yield* executeGit(
         "GitCore.discardChanges.status",
         cwd,
-        ["status", "--porcelain=2", "--", ...filePaths],
+        ["status", "--porcelain=2", "--untracked-files=all", "--", ...filePaths],
         { allowNonZeroExit: true },
       );
 

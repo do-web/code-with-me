@@ -1280,6 +1280,7 @@ export const makeTerminalManagerWithOptions = Effect.fn("makeTerminalManagerWith
           cols: session.cols,
           rows: session.rows,
           env: spawnEnv,
+          label: `pty:${session.projectId}:${session.terminalId}`,
         }),
       );
 

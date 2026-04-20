@@ -9,6 +9,7 @@ import {
   staticAndDevRouteLayer,
 } from "./http";
 import { fixPath } from "./os-jank";
+import { cleanupOrphanedChildren } from "./orphanCleanup";
 import { websocketRpcRouteLayer } from "./ws";
 import { OpenLive } from "./open";
 import { layerConfig as SqlitePersistenceLayerLive } from "./persistence/Layers/Sqlite";
@@ -228,6 +229,13 @@ export const makeServerLayer = Layer.unwrap(
     const config = yield* ServerConfig;
 
     fixPath();
+
+    // Kill any child processes left behind by a previous crashed run BEFORE
+    // the new server starts spawning its own. Registers the pid-file path
+    // for the active session as a side effect.
+    yield* cleanupOrphanedChildren(config.childrenPidFilePath).pipe(
+      Effect.ignoreCause({ log: true }),
+    );
 
     const httpListeningLayer = Layer.effectDiscard(
       Effect.gen(function* () {

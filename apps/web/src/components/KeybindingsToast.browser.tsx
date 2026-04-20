@@ -112,6 +112,8 @@ function createMinimalSnapshot(): OrchestrationReadModel {
         createdAt: NOW_ISO,
         updatedAt: NOW_ISO,
         archivedAt: null,
+        queueItems: [],
+        pendingTurnStart: null,
         deletedAt: null,
         messages: [
           {

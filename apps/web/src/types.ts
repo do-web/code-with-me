@@ -38,7 +38,15 @@ export interface ChatImageAttachment {
   previewUrl?: string;
 }
 
-export type ChatAttachment = ChatImageAttachment;
+export interface ChatDocumentAttachment {
+  type: "document";
+  id: string;
+  name: string;
+  mimeType: string;
+  sizeBytes: number;
+}
+
+export type ChatAttachment = ChatImageAttachment | ChatDocumentAttachment;
 
 export interface ChatMessage {
   id: MessageId;
@@ -49,6 +57,20 @@ export interface ChatMessage {
   createdAt: string;
   completedAt?: string | undefined;
   streaming: boolean;
+}
+
+export type QueueItemStatus = "queued" | "dispatched" | "cancelled";
+
+export interface QueueItem {
+  id: MessageId;
+  text: string;
+  attachments: ChatAttachment[];
+  modelSelection: ModelSelection | null;
+  runtimeMode: RuntimeMode;
+  interactionMode: ProviderInteractionMode;
+  status: QueueItemStatus;
+  enqueuedAt: string;
+  updatedAt: string;
 }
 
 export interface ProposedPlan {
@@ -109,6 +131,8 @@ export interface Thread {
   worktreePath: string | null;
   turnDiffSummaries: TurnDiffSummary[];
   activities: OrchestrationThreadActivity[];
+  queueItems: QueueItem[];
+  pendingTurnStart: MessageId | null;
 }
 
 export interface SidebarThreadSummary {

@@ -29,6 +29,17 @@ export function buildCodexInitializeParams() {
 
 const KILL_GRACE_MS = 3_000;
 
+/**
+ * Terminates a codex app-server child, preferring a process-group kill on
+ * POSIX when the child was spawned with `detached: true`. That way any
+ * sub-tools spawned by codex itself get the signal too, instead of becoming
+ * grandchild-orphans.
+ *
+ * Escalation: SIGTERM → 3 s grace → SIGKILL. The grace timer is `unref`'d so
+ * it doesn't keep the event loop alive, but it also means a crash-path exit
+ * may skip the SIGKILL — that's why `ChildProcessRegistry.killAllSync` +
+ * startup orphan-cleanup exist as backstops.
+ */
 export function killCodexChildProcess(child: ChildProcessWithoutNullStreams): void {
   if (process.platform === "win32" && child.pid !== undefined) {
     try {
@@ -39,12 +50,26 @@ export function killCodexChildProcess(child: ChildProcessWithoutNullStreams): vo
     }
   }
 
-  child.kill("SIGTERM");
+  const pid = child.pid;
+  const killGroup = (signal: NodeJS.Signals): boolean => {
+    if (process.platform === "win32" || pid === undefined) return false;
+    try {
+      process.kill(-pid, signal);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  if (!killGroup("SIGTERM")) {
+    child.kill("SIGTERM");
+  }
 
   // Escalate to SIGKILL if the process doesn't exit within the grace period.
   // This prevents zombie processes from holding PTY file descriptors open.
   const killTimer = setTimeout(() => {
-    if (!child.killed) {
+    if (child.killed) return;
+    if (!killGroup("SIGKILL")) {
       child.kill("SIGKILL");
     }
   }, KILL_GRACE_MS);

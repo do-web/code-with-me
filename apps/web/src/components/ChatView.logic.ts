@@ -41,6 +41,8 @@ export function buildLocalDraftThread(
     turnDiffSummaries: [],
     activities: [],
     proposedPlans: [],
+    queueItems: [],
+    pendingTurnStart: null,
   };
 }
 
@@ -255,6 +257,7 @@ export interface LocalDispatchSnapshot {
   latestTurnCompletedAt: string | null;
   sessionOrchestrationStatus: ThreadSession["orchestrationStatus"] | null;
   sessionUpdatedAt: string | null;
+  queueItemsCount: number;
 }
 
 export function createLocalDispatchSnapshot(
@@ -272,6 +275,7 @@ export function createLocalDispatchSnapshot(
     latestTurnCompletedAt: latestTurn?.completedAt ?? null,
     sessionOrchestrationStatus: session?.orchestrationStatus ?? null,
     sessionUpdatedAt: session?.updatedAt ?? null,
+    queueItemsCount: (activeThread?.queueItems ?? []).length,
   };
 }
 
@@ -283,6 +287,7 @@ export function hasServerAcknowledgedLocalDispatch(input: {
   hasPendingApproval: boolean;
   hasPendingUserInput: boolean;
   threadError: string | null | undefined;
+  queueItemsCount: number;
 }): boolean {
   if (!input.localDispatch) {
     return false;
@@ -293,6 +298,11 @@ export function hasServerAcknowledgedLocalDispatch(input: {
     input.hasPendingUserInput ||
     Boolean(input.threadError)
   ) {
+    return true;
+  }
+
+  // A new queued item appeared → server accepted the dispatch (enqueue path).
+  if (input.queueItemsCount > input.localDispatch.queueItemsCount) {
     return true;
   }
 

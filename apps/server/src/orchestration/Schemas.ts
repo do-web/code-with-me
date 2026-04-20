@@ -20,6 +20,11 @@ import {
   ThreadApprovalResponseRequestedPayload as ContractsThreadApprovalResponseRequestedPayloadSchema,
   ThreadCheckpointRevertRequestedPayload as ContractsThreadCheckpointRevertRequestedPayloadSchema,
   ThreadSessionStopRequestedPayload as ContractsThreadSessionStopRequestedPayloadSchema,
+  ThreadTurnCompletedPayload as ContractsThreadTurnCompletedPayloadSchema,
+  ThreadQueueItemEnqueuedPayload as ContractsThreadQueueItemEnqueuedPayloadSchema,
+  ThreadQueueItemEditedPayload as ContractsThreadQueueItemEditedPayloadSchema,
+  ThreadQueueItemCancelledPayload as ContractsThreadQueueItemCancelledPayloadSchema,
+  ThreadQueueItemDispatchedPayload as ContractsThreadQueueItemDispatchedPayloadSchema,
 } from "@codewithme/contracts";
 
 // Server-internal alias surface, backed by contract schemas as the source of truth.
@@ -50,3 +55,9 @@ export const ThreadApprovalResponseRequestedPayload =
 export const ThreadCheckpointRevertRequestedPayload =
   ContractsThreadCheckpointRevertRequestedPayloadSchema;
 export const ThreadSessionStopRequestedPayload = ContractsThreadSessionStopRequestedPayloadSchema;
+
+export const ThreadTurnCompletedPayload = ContractsThreadTurnCompletedPayloadSchema;
+export const ThreadQueueItemEnqueuedPayload = ContractsThreadQueueItemEnqueuedPayloadSchema;
+export const ThreadQueueItemEditedPayload = ContractsThreadQueueItemEditedPayloadSchema;
+export const ThreadQueueItemCancelledPayload = ContractsThreadQueueItemCancelledPayloadSchema;
+export const ThreadQueueItemDispatchedPayload = ContractsThreadQueueItemDispatchedPayloadSchema;

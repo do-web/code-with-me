@@ -1,6 +1,8 @@
 import { createRequire } from "node:module";
 
 import { Effect, FileSystem, Layer, Path } from "effect";
+
+import * as ChildProcessRegistry from "../../childProcessRegistry";
 import { PtyAdapter, PtyAdapterShape, PtyExitEvent, PtyProcess } from "../Services/PTY";
 
 let didEnsureSpawnHelperExecutable = false;
@@ -46,7 +48,16 @@ export const ensureNodePtySpawnHelperExecutable = Effect.fn(function* (explicitP
 });
 
 class NodePtyProcess implements PtyProcess {
-  constructor(private readonly process: import("node-pty").IPty) {}
+  private unregistered = false;
+
+  constructor(private readonly process: import("node-pty").IPty) {
+    // Auto-unregister from the child-process registry when the PTY exits on
+    // its own (user typed `exit`, shell crashed, killed via manager). Without
+    // this the PID file would keep growing.
+    this.process.onExit(() => {
+      this.unregisterOnce();
+    });
+  }
 
   get pid(): number {
     return this.process.pid;
@@ -62,6 +73,8 @@ class NodePtyProcess implements PtyProcess {
 
   kill(signal?: string): void {
     this.process.kill(signal);
+    // Best-effort unregister so repeated kills don't leave stale entries.
+    this.unregisterOnce();
   }
 
   onData(callback: (data: string) => void): () => void {
@@ -81,6 +94,12 @@ class NodePtyProcess implements PtyProcess {
     return () => {
       disposable.dispose();
     };
+  }
+
+  private unregisterOnce(): void {
+    if (this.unregistered) return;
+    this.unregistered = true;
+    ChildProcessRegistry.unregister(this.process.pid);
   }
 }
 
@@ -110,6 +129,12 @@ export const layer = Layer.effect(
           env: input.env,
           name: globalThis.process.platform === "win32" ? "xterm-color" : "xterm-256color",
         });
+        if (typeof ptyProcess.pid === "number") {
+          ChildProcessRegistry.register({
+            pid: ptyProcess.pid,
+            label: input.label,
+          });
+        }
         return new NodePtyProcess(ptyProcess);
       }),
     } satisfies PtyAdapterShape;

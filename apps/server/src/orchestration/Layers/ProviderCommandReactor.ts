@@ -16,6 +16,7 @@ import { makeDrainableWorker } from "@codewithme/shared/DrainableWorker";
 
 import { sanitizeCodexConversationText } from "../../codexInternalDiagnostics.ts";
 import { resolveThreadWorkspaceCwd } from "../../checkpointing/Utils.ts";
+import { ServerConfig } from "../../config.ts";
 import { GitCore } from "../../git/Services/GitCore.ts";
 import { increment, orchestrationEventsProcessedTotal } from "../../observability/Metrics.ts";
 import { ProviderAdapterRequestError, ProviderServiceError } from "../../provider/Errors.ts";
@@ -27,6 +28,7 @@ import {
   type ProviderCommandReactorShape,
 } from "../Services/ProviderCommandReactor.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
+import { appendDocumentReferencesToPrompt } from "../promptDocumentReferences.ts";
 
 type ProviderIntentEvent = Extract<
   OrchestrationEvent,
@@ -37,13 +39,21 @@ type ProviderIntentEvent = Extract<
       | "thread.turn-interrupt-requested"
       | "thread.approval-response-requested"
       | "thread.user-input-response-requested"
-      | "thread.session-stop-requested";
+      | "thread.session-stop-requested"
+      | "thread.turn-completed";
   }
 >;
 
 function toNonEmptyProviderInput(value: string | undefined): string | undefined {
   const normalized = sanitizeCodexConversationText(value)?.trim();
   return normalized && normalized.length > 0 ? normalized : undefined;
+}
+
+function formatConversationHistory(
+  messages: ReadonlyArray<{ readonly role: string; readonly text: string }>,
+): string {
+  const formatted = messages.map((msg) => `[${msg.role}]: ${msg.text}`).join("\n\n");
+  return `<conversation-history>\nThe following is the conversation history from a previous provider session. Use this as context for continuing the conversation.\n\n${formatted}\n</conversation-history>\n\n`;
 }
 
 function mapProviderSessionStatusToOrchestrationStatus(
@@ -153,6 +163,7 @@ const make = Effect.gen(function* () {
   const git = yield* GitCore;
   const textGeneration = yield* TextGeneration;
   const serverSettingsService = yield* ServerSettingsService;
+  const serverConfig = yield* ServerConfig;
   const handledTurnStartKeys = yield* Cache.make<string, true>({
     capacity: HANDLED_TURN_START_KEY_MAX,
     timeToLive: HANDLED_TURN_START_KEY_TTL,
@@ -233,11 +244,17 @@ const make = Effect.gen(function* () {
     }
 
     const desiredRuntimeMode = thread.runtimeMode;
-    const currentProvider: ProviderKind | undefined = Schema.is(ProviderKind)(
-      thread.session?.providerName,
-    )
-      ? thread.session.providerName
-      : undefined;
+    // Only treat the session's provider as binding while a turn is actively
+    // being processed. For idle/ready/stopped/interrupted sessions, we allow
+    // switching to a different provider — the restart logic below handles it.
+    const turnInProgress =
+      thread.session !== null &&
+      (thread.session.status === "running" || thread.session.status === "starting") &&
+      thread.session.activeTurnId !== null;
+    const currentProvider: ProviderKind | undefined =
+      turnInProgress && Schema.is(ProviderKind)(thread.session?.providerName)
+        ? thread.session.providerName
+        : undefined;
     const requestedModelSelection = options?.modelSelection;
     const threadProvider: ProviderKind = currentProvider ?? thread.modelSelection.provider;
     if (
@@ -381,6 +398,16 @@ const make = Effect.gen(function* () {
     }
     const normalizedInput = toNonEmptyProviderInput(input.messageText);
     const normalizedAttachments = input.attachments ?? [];
+    const hasDocumentAttachments = normalizedAttachments.some(
+      (attachment) => attachment.type === "document",
+    );
+    const finalInput = hasDocumentAttachments
+      ? appendDocumentReferencesToPrompt({
+          prompt: normalizedInput,
+          attachments: normalizedAttachments,
+          attachmentsDir: serverConfig.attachmentsDir,
+        })
+      : normalizedInput;
     const activeSession = yield* providerService
       .listSessions()
       .pipe(
@@ -402,9 +429,23 @@ const make = Effect.gen(function* () {
           : requestedModelSelection
         : input.modelSelection;
 
+    // Detect provider switch: previous session had a different provider
+    const previousProvider = thread.session?.providerName;
+    const newProvider = requestedModelSelection.provider;
+    const isProviderSwitch =
+      previousProvider !== null &&
+      previousProvider !== undefined &&
+      previousProvider !== newProvider;
+
+    // On provider switch, prepend conversation history as context for the new provider
+    const effectiveInput =
+      isProviderSwitch && thread.messages.length > 0
+        ? formatConversationHistory(thread.messages) + (finalInput ?? "")
+        : finalInput;
+
     yield* providerService.sendTurn({
       threadId: input.threadId,
-      ...(normalizedInput ? { input: normalizedInput } : {}),
+      ...(effectiveInput ? { input: effectiveInput } : {}),
       ...(normalizedAttachments.length > 0 ? { attachments: normalizedAttachments } : {}),
       ...(modelForTurn !== undefined ? { modelSelection: modelForTurn } : {}),
       ...(input.interactionMode !== undefined ? { interactionMode: input.interactionMode } : {}),
@@ -710,6 +751,30 @@ const make = Effect.gen(function* () {
     },
   );
 
+  const processTurnCompleted = Effect.fn("processTurnCompleted")(function* (
+    event: Extract<ProviderIntentEvent, { type: "thread.turn-completed" }>,
+  ) {
+    // Drain the next queue item (FIFO) as a new turn, regardless of completion
+    // status — per user decision, queue keeps running after interrupt/failure.
+    const thread = yield* resolveThread(event.payload.threadId);
+    if (!thread) {
+      return;
+    }
+    const nextQueued = thread.queueItems
+      .filter((item) => item.status === "queued")
+      .toSorted((a, b) => a.enqueuedAt.localeCompare(b.enqueuedAt))[0];
+    if (nextQueued === undefined) {
+      return;
+    }
+    yield* orchestrationEngine.dispatch({
+      type: "thread.queue-item.dispatch",
+      commandId: serverCommandId("queue-item-dispatch"),
+      threadId: thread.id,
+      queueItemId: nextQueued.id,
+      createdAt: event.payload.completedAt,
+    });
+  });
+
   const processSessionStopRequested = Effect.fn("processSessionStopRequested")(function* (
     event: Extract<ProviderIntentEvent, { type: "thread.session-stop-requested" }>,
   ) {
@@ -778,6 +843,9 @@ const make = Effect.gen(function* () {
       case "thread.session-stop-requested":
         yield* processSessionStopRequested(event);
         return;
+      case "thread.turn-completed":
+        yield* processTurnCompleted(event);
+        return;
     }
   });
 
@@ -804,7 +872,8 @@ const make = Effect.gen(function* () {
         event.type === "thread.turn-interrupt-requested" ||
         event.type === "thread.approval-response-requested" ||
         event.type === "thread.user-input-response-requested" ||
-        event.type === "thread.session-stop-requested"
+        event.type === "thread.session-stop-requested" ||
+        event.type === "thread.turn-completed"
       ) {
         return yield* worker.enqueue(event);
       }

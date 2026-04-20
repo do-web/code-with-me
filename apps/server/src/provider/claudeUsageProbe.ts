@@ -4,6 +4,8 @@ import type { ProviderQuota } from "@codewithme/contracts";
 import { stripAnsi } from "@codewithme/shared/ansi";
 import { Effect } from "effect";
 
+import * as ChildProcessRegistry from "../childProcessRegistry.ts";
+
 // ── Output parsing ──────────────────────────────────────────────────
 //
 // Expected `/usage` output lines:
@@ -149,6 +151,13 @@ function runPtyProbe(binaryPath: string): Promise<ProviderQuota[]> {
       env: { ...globalThis.process.env },
     });
 
+    // Register the PTY so a server crash during the (up to 20 s) probe
+    // doesn't leave a claude CLI behind holding a PTY device.
+    const registeredPid = typeof proc.pid === "number" ? proc.pid : undefined;
+    if (registeredPid !== undefined) {
+      ChildProcessRegistry.register({ pid: registeredPid, label: "claude-usage-probe" });
+    }
+
     const cleanup = () => {
       if (!resolved) {
         resolved = true;
@@ -156,6 +165,9 @@ function runPtyProbe(binaryPath: string): Promise<ProviderQuota[]> {
           proc.kill();
         } catch {
           // ignore
+        }
+        if (registeredPid !== undefined) {
+          ChildProcessRegistry.unregister(registeredPid);
         }
       }
     };
@@ -201,6 +213,9 @@ function runPtyProbe(binaryPath: string): Promise<ProviderQuota[]> {
         output.length,
       );
       clearTimeout(timeout);
+      if (registeredPid !== undefined) {
+        ChildProcessRegistry.unregister(registeredPid);
+      }
       if (!resolved) {
         resolved = true;
         const quotas = parsedLinesToQuotas(parseUsageLines(output));

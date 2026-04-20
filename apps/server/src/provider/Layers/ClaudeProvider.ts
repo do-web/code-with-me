@@ -37,7 +37,8 @@ const BUILT_IN_MODELS: ReadonlyArray<ServerProviderModel> = [
       reasoningEffortLevels: [
         { value: "low", label: "Low" },
         { value: "medium", label: "Medium" },
-        { value: "high", label: "High", isDefault: true },
+        { value: "high", label: "High" },
+        { value: "xhigh", label: "Extra High", isDefault: true },
         { value: "max", label: "Max" },
         { value: "ultrathink", label: "Ultrathink" },
       ],
@@ -47,7 +48,7 @@ const BUILT_IN_MODELS: ReadonlyArray<ServerProviderModel> = [
         { value: "200k", label: "200k", isDefault: true },
         { value: "1m", label: "1M" },
       ],
-      promptInjectedEffortLevels: ["ultrathink"],
+      promptInjectedEffortLevels: ["xhigh", "ultrathink"],
     } satisfies ModelCapabilities,
   },
   {

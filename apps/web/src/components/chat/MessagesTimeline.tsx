@@ -25,6 +25,7 @@ import {
   BotIcon,
   CheckIcon,
   CircleAlertIcon,
+  ClockIcon,
   EyeIcon,
   GlobeIcon,
   HammerIcon,
@@ -33,6 +34,7 @@ import {
   TerminalIcon,
   Undo2Icon,
   WrenchIcon,
+  XIcon,
   ZapIcon,
 } from "lucide-react";
 import { Button } from "../ui/button";
@@ -82,6 +84,8 @@ interface MessagesTimelineProps {
   revertTurnCountByUserMessageId: Map<MessageId, number>;
   onRevertUserMessage: (messageId: MessageId) => void;
   isRevertingCheckpoint: boolean;
+  onEditQueueItem: (queueItemId: MessageId, nextText: string) => void;
+  onCancelQueueItem: (queueItemId: MessageId) => void;
   onImageExpand: (preview: ExpandedImagePreview) => void;
   markdownCwd: string | undefined;
   resolvedTheme: "light" | "dark";
@@ -119,6 +123,8 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   revertTurnCountByUserMessageId,
   onRevertUserMessage,
   isRevertingCheckpoint,
+  onEditQueueItem,
+  onCancelQueueItem,
   onImageExpand,
   markdownCwd,
   resolvedTheme,
@@ -395,10 +401,25 @@ export const MessagesTimeline = memo(function MessagesTimeline({
           );
         })()}
 
+      {row.kind === "queue-item" &&
+        (() => {
+          const queueItem = row.item;
+          return (
+            <QueueItemRow
+              item={queueItem}
+              position={row.position}
+              onEdit={onEditQueueItem}
+              onCancel={onCancelQueueItem}
+            />
+          );
+        })()}
+
       {row.kind === "message" &&
         row.message.role === "user" &&
         (() => {
-          const userImages = row.message.attachments ?? [];
+          const attachments = row.message.attachments ?? [];
+          const userImages = attachments.filter((attachment) => attachment.type === "image");
+          const userDocuments = attachments.filter((attachment) => attachment.type === "document");
           const displayedUserMessage = deriveDisplayedUserMessageState(row.message.text);
           const terminalContexts = displayedUserMessage.contexts;
           const canRevertAgentWork = revertTurnCountByUserMessageId.has(row.message.id);
@@ -407,39 +428,55 @@ export const MessagesTimeline = memo(function MessagesTimeline({
               <div className="group relative max-w-[80%] rounded-2xl rounded-br-sm border border-border bg-secondary px-4 py-3">
                 {userImages.length > 0 && (
                   <div className="mb-2 grid max-w-[420px] grid-cols-2 gap-2">
-                    {userImages.map(
-                      (image: NonNullable<TimelineMessage["attachments"]>[number]) => (
-                        <div
-                          key={image.id}
-                          className="overflow-hidden rounded-lg border border-border/80 bg-background/70"
-                        >
-                          {image.previewUrl ? (
-                            <button
-                              type="button"
-                              className="h-full w-full cursor-zoom-in"
-                              aria-label={`Preview ${image.name}`}
-                              onClick={() => {
-                                const preview = buildExpandedImagePreview(userImages, image.id);
-                                if (!preview) return;
-                                onImageExpand(preview);
-                              }}
-                            >
-                              <img
-                                src={image.previewUrl}
-                                alt={image.name}
-                                className="h-full max-h-[220px] w-full object-cover"
-                                onLoad={onTimelineImageLoad}
-                                onError={onTimelineImageLoad}
-                              />
-                            </button>
-                          ) : (
-                            <div className="flex min-h-[72px] items-center justify-center px-2 py-3 text-center text-[11px] text-muted-foreground/70">
-                              {image.name}
-                            </div>
-                          )}
-                        </div>
-                      ),
-                    )}
+                    {userImages.map((image) => (
+                      <div
+                        key={image.id}
+                        className="overflow-hidden rounded-lg border border-border/80 bg-background/70"
+                      >
+                        {image.previewUrl ? (
+                          <button
+                            type="button"
+                            className="h-full w-full cursor-zoom-in"
+                            aria-label={`Preview ${image.name}`}
+                            onClick={() => {
+                              const preview = buildExpandedImagePreview(userImages, image.id);
+                              if (!preview) return;
+                              onImageExpand(preview);
+                            }}
+                          >
+                            <img
+                              src={image.previewUrl}
+                              alt={image.name}
+                              className="h-full max-h-[220px] w-full object-cover"
+                              onLoad={onTimelineImageLoad}
+                              onError={onTimelineImageLoad}
+                            />
+                          </button>
+                        ) : (
+                          <div className="flex min-h-[72px] items-center justify-center px-2 py-3 text-center text-[11px] text-muted-foreground/70">
+                            {image.name}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {userDocuments.length > 0 && (
+                  <div className="mb-2 flex max-w-[420px] flex-col gap-1.5">
+                    {userDocuments.map((doc) => (
+                      <a
+                        key={doc.id}
+                        href={`/attachments/${doc.id}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="flex items-center gap-2 rounded-lg border border-border/80 bg-background/70 px-2.5 py-1.5 text-xs text-foreground hover:bg-background"
+                      >
+                        <span aria-hidden="true">📄</span>
+                        <span className="truncate" title={doc.name}>
+                          {doc.name}
+                        </span>
+                      </a>
+                    ))}
                   </div>
                 )}
                 {(displayedUserMessage.visibleText.trim().length > 0 ||
@@ -946,6 +983,104 @@ function toolWorkEntryHeading(workEntry: TimelineWorkEntry): string {
   }
   return capitalizePhrase(normalizeCompactToolLabel(workEntry.toolTitle));
 }
+
+const QueueItemRow = memo(function QueueItemRow(props: {
+  item: import("../../types").QueueItem;
+  position: number;
+  onEdit: (queueItemId: MessageId, nextText: string) => void;
+  onCancel: (queueItemId: MessageId) => void;
+}) {
+  const { item, position, onEdit, onCancel } = props;
+  const [isEditing, setIsEditing] = useState(false);
+  const [draftText, setDraftText] = useState(item.text);
+  useEffect(() => {
+    if (!isEditing) {
+      setDraftText(item.text);
+    }
+  }, [item.text, isEditing]);
+
+  const commitEdit = () => {
+    const trimmed = draftText.trim();
+    if (trimmed.length > 0 && trimmed !== item.text) {
+      onEdit(item.id, trimmed);
+    }
+    setIsEditing(false);
+  };
+
+  return (
+    <div className="flex justify-end">
+      <div className="group relative max-w-[80%] rounded-2xl rounded-br-sm border border-dashed border-border/70 bg-secondary/40 px-4 py-3 opacity-80">
+        <div className="mb-1 flex items-center gap-1.5 text-[10px] uppercase tracking-[0.14em] text-muted-foreground/80">
+          <ClockIcon className="size-3" />
+          <span>In Queue · Position {position}</span>
+        </div>
+        {isEditing ? (
+          <textarea
+            className="min-h-[60px] w-full resize-y rounded-md border border-border/60 bg-background/80 px-2 py-1.5 text-sm leading-snug outline-none focus:border-primary/60"
+            value={draftText}
+            autoFocus
+            onChange={(event) => setDraftText(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+                event.preventDefault();
+                commitEdit();
+              } else if (event.key === "Escape") {
+                event.preventDefault();
+                setIsEditing(false);
+                setDraftText(item.text);
+              }
+            }}
+          />
+        ) : (
+          <p className="whitespace-pre-wrap break-words text-sm leading-snug text-foreground/90">
+            {item.text}
+          </p>
+        )}
+        <div className="mt-1.5 flex items-center justify-end gap-1.5">
+          {isEditing ? (
+            <>
+              <Button
+                type="button"
+                size="xs"
+                variant="ghost"
+                onClick={() => {
+                  setIsEditing(false);
+                  setDraftText(item.text);
+                }}
+              >
+                Cancel
+              </Button>
+              <Button type="button" size="xs" variant="default" onClick={commitEdit}>
+                Save
+              </Button>
+            </>
+          ) : (
+            <div className="flex items-center gap-1.5 opacity-0 transition-opacity duration-200 focus-within:opacity-100 group-hover:opacity-100">
+              <Button
+                type="button"
+                size="xs"
+                variant="outline"
+                onClick={() => setIsEditing(true)}
+                title="Edit queued message"
+              >
+                <SquarePenIcon className="size-3" />
+              </Button>
+              <Button
+                type="button"
+                size="xs"
+                variant="outline"
+                onClick={() => onCancel(item.id)}
+                title="Cancel queued message"
+              >
+                <XIcon className="size-3" />
+              </Button>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+});
 
 const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
   workEntry: TimelineWorkEntry;

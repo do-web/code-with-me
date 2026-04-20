@@ -1,4 +1,6 @@
 import { Effect, Layer } from "effect";
+
+import * as ChildProcessRegistry from "../../childProcessRegistry";
 import { PtyAdapter, PtyAdapterShape, PtyExitEvent, PtyProcess } from "../Services/PTY";
 
 class BunPtyProcess implements PtyProcess {
@@ -6,6 +8,7 @@ class BunPtyProcess implements PtyProcess {
   private readonly exitListeners = new Set<(event: PtyExitEvent) => void>();
   private readonly decoder = new TextDecoder();
   private didExit = false;
+  private unregistered = false;
 
   constructor(private readonly process: Bun.Subprocess) {
     void this.process.exited
@@ -18,6 +21,14 @@ class BunPtyProcess implements PtyProcess {
       .catch(() => {
         this.emitExit({ exitCode: 1, signal: null });
       });
+  }
+
+  private unregisterOnce(): void {
+    if (this.unregistered) return;
+    this.unregistered = true;
+    if (typeof this.process.pid === "number") {
+      ChildProcessRegistry.unregister(this.process.pid);
+    }
   }
 
   get pid(): number {
@@ -41,9 +52,10 @@ class BunPtyProcess implements PtyProcess {
   kill(signal?: string): void {
     if (!signal) {
       this.process.kill();
-      return;
+    } else {
+      this.process.kill(signal as NodeJS.Signals);
     }
-    this.process.kill(signal as NodeJS.Signals);
+    this.unregisterOnce();
   }
 
   onData(callback: (data: string) => void): () => void {
@@ -72,6 +84,7 @@ class BunPtyProcess implements PtyProcess {
   private emitExit(event: PtyExitEvent): void {
     if (this.didExit) return;
     this.didExit = true;
+    this.unregisterOnce();
 
     const remainder = this.decoder.decode();
     if (remainder.length > 0) {
@@ -110,6 +123,12 @@ export const layer = Layer.effect(
               },
             },
           });
+          if (typeof subprocess.pid === "number") {
+            ChildProcessRegistry.register({
+              pid: subprocess.pid,
+              label: input.label,
+            });
+          }
           processHandle = new BunPtyProcess(subprocess);
           return processHandle;
         }),

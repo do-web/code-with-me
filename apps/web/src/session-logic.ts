@@ -14,6 +14,7 @@ import {
 import type {
   ChatMessage,
   ProposedPlan,
+  QueueItem,
   SessionPhase,
   Thread,
   ThreadSession,
@@ -102,6 +103,13 @@ export type TimelineEntry =
       kind: "work";
       createdAt: string;
       entry: WorkLogEntry;
+    }
+  | {
+      id: string;
+      kind: "queue-item";
+      createdAt: string;
+      item: QueueItem;
+      position: number;
     };
 
 export function formatDuration(durationMs: number): string {
@@ -829,6 +837,7 @@ export function deriveTimelineEntries(
   messages: ChatMessage[],
   proposedPlans: ProposedPlan[],
   workEntries: WorkLogEntry[],
+  queueItems: ReadonlyArray<QueueItem> = [],
 ): TimelineEntry[] {
   const messageRows: TimelineEntry[] = messages.map((message) => ({
     id: message.id,
@@ -848,9 +857,23 @@ export function deriveTimelineEntries(
     createdAt: entry.createdAt,
     entry,
   }));
-  return [...messageRows, ...proposedPlanRows, ...workRows].toSorted((a, b) =>
+  const timeline = [...messageRows, ...proposedPlanRows, ...workRows].toSorted((a, b) =>
     a.createdAt.localeCompare(b.createdAt),
   );
+  // Queue items appear at the end of the timeline, sorted by enqueue order.
+  // Only "queued" items show — dispatched/cancelled items are implicitly gone
+  // (dispatched ones become regular messages via thread.message-sent).
+  const queueRows: TimelineEntry[] = queueItems
+    .filter((item) => item.status === "queued")
+    .toSorted((a, b) => a.enqueuedAt.localeCompare(b.enqueuedAt))
+    .map((item, index) => ({
+      id: `queue:${item.id}`,
+      kind: "queue-item",
+      createdAt: item.enqueuedAt,
+      item,
+      position: index + 1,
+    }));
+  return [...timeline, ...queueRows];
 }
 
 export function deriveCompletionDividerBeforeEntryId(

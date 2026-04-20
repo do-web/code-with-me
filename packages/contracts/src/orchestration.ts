@@ -92,8 +92,15 @@ export type ProviderUserInputAnswers = typeof ProviderUserInputAnswers.Type;
 export const PROVIDER_SEND_TURN_MAX_INPUT_CHARS = 120_000;
 export const PROVIDER_SEND_TURN_MAX_ATTACHMENTS = 8;
 export const PROVIDER_SEND_TURN_MAX_IMAGE_BYTES = 10 * 1024 * 1024;
+export const PROVIDER_SEND_TURN_MAX_DOCUMENT_BYTES = 10 * 1024 * 1024;
 const PROVIDER_SEND_TURN_MAX_IMAGE_DATA_URL_CHARS = 14_000_000;
+const PROVIDER_SEND_TURN_MAX_DOCUMENT_DATA_URL_CHARS = 14_000_000;
 const CHAT_ATTACHMENT_ID_MAX_CHARS = 128;
+// Whitelist of allowed document MIME types. Anchored to avoid partial matches.
+// Covers PDF, legacy Office (doc/xls/ppt), OOXML (docx/xlsx/pptx), RTF,
+// OpenDocument, and common plaintext document types (csv/tsv/markdown/log/plain).
+export const CHAT_DOCUMENT_MIME_PATTERN =
+  /^(application\/(pdf|msword|rtf|vnd\.ms-(excel|powerpoint)|vnd\.openxmlformats-officedocument\.(wordprocessingml|spreadsheetml|presentationml)\.[a-z.+-]+|vnd\.oasis\.opendocument\.[a-z.+-]+)|text\/(plain|csv|tab-separated-values|markdown|x-log))$/i;
 // Correlation id is command id by design in this model.
 export const CorrelationId = CommandId;
 export type CorrelationId = typeof CorrelationId.Type;
@@ -124,9 +131,42 @@ const UploadChatImageAttachment = Schema.Struct({
 });
 export type UploadChatImageAttachment = typeof UploadChatImageAttachment.Type;
 
-export const ChatAttachment = Schema.Union([ChatImageAttachment]);
+export const ChatDocumentAttachment = Schema.Struct({
+  type: Schema.Literal("document"),
+  id: ChatAttachmentId,
+  name: TrimmedNonEmptyString.check(Schema.isMaxLength(255)),
+  mimeType: TrimmedNonEmptyString.check(
+    Schema.isMaxLength(150),
+    Schema.isPattern(CHAT_DOCUMENT_MIME_PATTERN),
+  ),
+  sizeBytes: NonNegativeInt.check(
+    Schema.isLessThanOrEqualTo(PROVIDER_SEND_TURN_MAX_DOCUMENT_BYTES),
+  ),
+});
+export type ChatDocumentAttachment = typeof ChatDocumentAttachment.Type;
+
+const UploadChatDocumentAttachment = Schema.Struct({
+  type: Schema.Literal("document"),
+  name: TrimmedNonEmptyString.check(Schema.isMaxLength(255)),
+  mimeType: TrimmedNonEmptyString.check(
+    Schema.isMaxLength(150),
+    Schema.isPattern(CHAT_DOCUMENT_MIME_PATTERN),
+  ),
+  sizeBytes: NonNegativeInt.check(
+    Schema.isLessThanOrEqualTo(PROVIDER_SEND_TURN_MAX_DOCUMENT_BYTES),
+  ),
+  dataUrl: TrimmedNonEmptyString.check(
+    Schema.isMaxLength(PROVIDER_SEND_TURN_MAX_DOCUMENT_DATA_URL_CHARS),
+  ),
+});
+export type UploadChatDocumentAttachment = typeof UploadChatDocumentAttachment.Type;
+
+export const ChatAttachment = Schema.Union([ChatImageAttachment, ChatDocumentAttachment]);
 export type ChatAttachment = typeof ChatAttachment.Type;
-const UploadChatAttachment = Schema.Union([UploadChatImageAttachment]);
+const UploadChatAttachment = Schema.Union([
+  UploadChatImageAttachment,
+  UploadChatDocumentAttachment,
+]);
 export type UploadChatAttachment = typeof UploadChatAttachment.Type;
 
 export const ProjectScriptIcon = Schema.Literals([
@@ -277,6 +317,33 @@ export const OrchestrationLatestTurn = Schema.Struct({
 });
 export type OrchestrationLatestTurn = typeof OrchestrationLatestTurn.Type;
 
+export const OrchestrationQueueItemStatus = Schema.Literals(["queued", "dispatched", "cancelled"]);
+export type OrchestrationQueueItemStatus = typeof OrchestrationQueueItemStatus.Type;
+
+export const OrchestrationQueueItem = Schema.Struct({
+  id: MessageId,
+  text: Schema.String,
+  attachments: Schema.Array(ChatAttachment).pipe(Schema.withDecodingDefault(() => [])),
+  modelSelection: Schema.NullOr(ModelSelection),
+  runtimeMode: RuntimeMode.pipe(Schema.withDecodingDefault(() => DEFAULT_RUNTIME_MODE)),
+  interactionMode: ProviderInteractionMode.pipe(
+    Schema.withDecodingDefault(() => DEFAULT_PROVIDER_INTERACTION_MODE),
+  ),
+  sourceProposedPlan: Schema.optional(SourceProposedPlanReference),
+  status: OrchestrationQueueItemStatus,
+  enqueuedAt: IsoDateTime,
+  updatedAt: IsoDateTime,
+});
+export type OrchestrationQueueItem = typeof OrchestrationQueueItem.Type;
+
+export const ThreadTurnCompletionStatus = Schema.Literals([
+  "completed",
+  "failed",
+  "interrupted",
+  "cancelled",
+]);
+export type ThreadTurnCompletionStatus = typeof ThreadTurnCompletionStatus.Type;
+
 export const OrchestrationThread = Schema.Struct({
   id: ThreadId,
   projectId: ProjectId,
@@ -298,6 +365,12 @@ export const OrchestrationThread = Schema.Struct({
   activities: Schema.Array(OrchestrationThreadActivity),
   checkpoints: Schema.Array(OrchestrationCheckpointSummary),
   session: Schema.NullOr(OrchestrationSession),
+  queueItems: Schema.Array(OrchestrationQueueItem).pipe(Schema.withDecodingDefault(() => [])),
+  // Set to the user messageId as soon as a turn-start-requested event is
+  // projected, cleared on turn-completed / turn-interrupt. Used by the decider
+  // to close the TOCTOU window between sendTurn() and the provider's
+  // turn.started event (activeTurnId is only set once the provider acks).
+  pendingTurnStart: Schema.NullOr(MessageId).pipe(Schema.withDecodingDefault(() => null)),
 });
 export type OrchestrationThread = typeof OrchestrationThread.Type;
 
@@ -501,6 +574,34 @@ const ThreadSessionStopCommand = Schema.Struct({
   createdAt: IsoDateTime,
 });
 
+export const ThreadQueueItemEditCommand = Schema.Struct({
+  type: Schema.Literal("thread.queue-item.edit"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  queueItemId: MessageId,
+  text: Schema.String,
+  attachments: Schema.Array(ChatAttachment),
+  createdAt: IsoDateTime,
+});
+
+const ClientThreadQueueItemEditCommand = Schema.Struct({
+  type: Schema.Literal("thread.queue-item.edit"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  queueItemId: MessageId,
+  text: Schema.String,
+  attachments: Schema.Array(UploadChatAttachment),
+  createdAt: IsoDateTime,
+});
+
+export const ThreadQueueItemCancelCommand = Schema.Struct({
+  type: Schema.Literal("thread.queue-item.cancel"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  queueItemId: MessageId,
+  createdAt: IsoDateTime,
+});
+
 const DispatchableClientOrchestrationCommand = Schema.Union([
   ProjectCreateCommand,
   ProjectMetaUpdateCommand,
@@ -518,6 +619,8 @@ const DispatchableClientOrchestrationCommand = Schema.Union([
   ThreadUserInputRespondCommand,
   ThreadCheckpointRevertCommand,
   ThreadSessionStopCommand,
+  ThreadQueueItemEditCommand,
+  ThreadQueueItemCancelCommand,
 ]);
 export type DispatchableClientOrchestrationCommand =
   typeof DispatchableClientOrchestrationCommand.Type;
@@ -539,6 +642,8 @@ export const ClientOrchestrationCommand = Schema.Union([
   ThreadUserInputRespondCommand,
   ThreadCheckpointRevertCommand,
   ThreadSessionStopCommand,
+  ClientThreadQueueItemEditCommand,
+  ThreadQueueItemCancelCommand,
 ]);
 export type ClientOrchestrationCommand = typeof ClientOrchestrationCommand.Type;
 
@@ -607,6 +712,24 @@ const ThreadRevertCompleteCommand = Schema.Struct({
   createdAt: IsoDateTime,
 });
 
+export const ThreadTurnCompleteCommand = Schema.Struct({
+  type: Schema.Literal("thread.turn.complete"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  turnId: TurnId,
+  status: ThreadTurnCompletionStatus,
+  completedAt: IsoDateTime,
+  createdAt: IsoDateTime,
+});
+
+export const ThreadQueueItemDispatchCommand = Schema.Struct({
+  type: Schema.Literal("thread.queue-item.dispatch"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  queueItemId: MessageId,
+  createdAt: IsoDateTime,
+});
+
 const InternalOrchestrationCommand = Schema.Union([
   ThreadSessionSetCommand,
   ThreadMessageAssistantDeltaCommand,
@@ -615,6 +738,8 @@ const InternalOrchestrationCommand = Schema.Union([
   ThreadTurnDiffCompleteCommand,
   ThreadActivityAppendCommand,
   ThreadRevertCompleteCommand,
+  ThreadTurnCompleteCommand,
+  ThreadQueueItemDispatchCommand,
 ]);
 export type InternalOrchestrationCommand = typeof InternalOrchestrationCommand.Type;
 
@@ -647,6 +772,11 @@ export const OrchestrationEventType = Schema.Literals([
   "thread.proposed-plan-upserted",
   "thread.turn-diff-completed",
   "thread.activity-appended",
+  "thread.turn-completed",
+  "thread.queue-item-enqueued",
+  "thread.queue-item-edited",
+  "thread.queue-item-cancelled",
+  "thread.queue-item-dispatched",
 ]);
 export type OrchestrationEventType = typeof OrchestrationEventType.Type;
 
@@ -819,6 +949,47 @@ export const ThreadActivityAppendedPayload = Schema.Struct({
   activity: OrchestrationThreadActivity,
 });
 
+export const ThreadTurnCompletedPayload = Schema.Struct({
+  threadId: ThreadId,
+  turnId: TurnId,
+  status: ThreadTurnCompletionStatus,
+  completedAt: IsoDateTime,
+});
+
+export const ThreadQueueItemEnqueuedPayload = Schema.Struct({
+  threadId: ThreadId,
+  queueItemId: MessageId,
+  text: Schema.String,
+  attachments: Schema.Array(ChatAttachment).pipe(Schema.withDecodingDefault(() => [])),
+  modelSelection: Schema.NullOr(ModelSelection),
+  runtimeMode: RuntimeMode.pipe(Schema.withDecodingDefault(() => DEFAULT_RUNTIME_MODE)),
+  interactionMode: ProviderInteractionMode.pipe(
+    Schema.withDecodingDefault(() => DEFAULT_PROVIDER_INTERACTION_MODE),
+  ),
+  sourceProposedPlan: Schema.optional(SourceProposedPlanReference),
+  enqueuedAt: IsoDateTime,
+});
+
+export const ThreadQueueItemEditedPayload = Schema.Struct({
+  threadId: ThreadId,
+  queueItemId: MessageId,
+  text: Schema.String,
+  attachments: Schema.Array(ChatAttachment).pipe(Schema.withDecodingDefault(() => [])),
+  updatedAt: IsoDateTime,
+});
+
+export const ThreadQueueItemCancelledPayload = Schema.Struct({
+  threadId: ThreadId,
+  queueItemId: MessageId,
+  cancelledAt: IsoDateTime,
+});
+
+export const ThreadQueueItemDispatchedPayload = Schema.Struct({
+  threadId: ThreadId,
+  queueItemId: MessageId,
+  dispatchedAt: IsoDateTime,
+});
+
 export const OrchestrationEventMetadata = Schema.Struct({
   providerTurnId: Schema.optional(TrimmedNonEmptyString),
   providerItemId: Schema.optional(ProviderItemId),
@@ -950,6 +1121,31 @@ export const OrchestrationEvent = Schema.Union([
     ...EventBaseFields,
     type: Schema.Literal("thread.activity-appended"),
     payload: ThreadActivityAppendedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("thread.turn-completed"),
+    payload: ThreadTurnCompletedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("thread.queue-item-enqueued"),
+    payload: ThreadQueueItemEnqueuedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("thread.queue-item-edited"),
+    payload: ThreadQueueItemEditedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("thread.queue-item-cancelled"),
+    payload: ThreadQueueItemCancelledPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("thread.queue-item-dispatched"),
+    payload: ThreadQueueItemDispatchedPayload,
   }),
 ]);
 export type OrchestrationEvent = typeof OrchestrationEvent.Type;

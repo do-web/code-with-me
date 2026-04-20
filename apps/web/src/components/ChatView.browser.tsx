@@ -283,6 +283,8 @@ function createSnapshotForTargetUser(options: {
         activities: [],
         proposedPlans: [],
         checkpoints: [],
+        queueItems: [],
+        pendingTurnStart: null,
         session: {
           threadId: THREAD_ID,
           status: options.sessionStatus ?? "ready",
@@ -341,6 +343,8 @@ function addThreadToSnapshot(
         activities: [],
         proposedPlans: [],
         checkpoints: [],
+        queueItems: [],
+        pendingTurnStart: null,
         session: {
           threadId,
           status: "ready",

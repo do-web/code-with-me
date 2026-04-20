@@ -9,7 +9,9 @@ import {
   type ProjectEntry,
   type ProjectId,
   type ProviderApprovalDecision,
+  CHAT_DOCUMENT_MIME_PATTERN,
   PROVIDER_SEND_TURN_MAX_ATTACHMENTS,
+  PROVIDER_SEND_TURN_MAX_DOCUMENT_BYTES,
   PROVIDER_SEND_TURN_MAX_IMAGE_BYTES,
   type ServerProvider,
   type ThreadId,
@@ -133,8 +135,10 @@ import { useSettings } from "../hooks/useSettings";
 import { resolveAppModelSelection } from "../modelSelection";
 import { isTerminalFocused } from "../lib/terminalFocus";
 import {
+  type ComposerDocumentAttachment,
   type ComposerImageAttachment,
   type DraftThreadEnvMode,
+  type PersistedComposerDocumentAttachment,
   type PersistedComposerImageAttachment,
   useComposerDraftStore,
   useEffectiveComposerModelState,
@@ -218,8 +222,63 @@ import { getProviderSnapshot } from "../providerModels";
 
 const ATTACHMENT_PREVIEW_HANDOFF_TTL_MS = 5000;
 const IMAGE_SIZE_LIMIT_LABEL = `${Math.round(PROVIDER_SEND_TURN_MAX_IMAGE_BYTES / (1024 * 1024))}MB`;
+const DOCUMENT_SIZE_LIMIT_LABEL = `${Math.round(
+  PROVIDER_SEND_TURN_MAX_DOCUMENT_BYTES / (1024 * 1024),
+)}MB`;
 const IMAGE_ONLY_BOOTSTRAP_PROMPT =
   "[User attached one or more images without additional text. Respond using the conversation context and the attached image(s).]";
+const DOCUMENT_EXTENSION_WHITELIST = new Set([
+  ".pdf",
+  ".doc",
+  ".docx",
+  ".rtf",
+  ".xls",
+  ".xlsx",
+  ".ppt",
+  ".pptx",
+  ".odt",
+  ".ods",
+  ".odp",
+  ".csv",
+  ".tsv",
+  ".md",
+]);
+const DOCUMENT_MIME_BY_EXTENSION: Record<string, string> = {
+  ".pdf": "application/pdf",
+  ".doc": "application/msword",
+  ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  ".rtf": "application/rtf",
+  ".xls": "application/vnd.ms-excel",
+  ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  ".ppt": "application/vnd.ms-powerpoint",
+  ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  ".odt": "application/vnd.oasis.opendocument.text",
+  ".ods": "application/vnd.oasis.opendocument.spreadsheet",
+  ".odp": "application/vnd.oasis.opendocument.presentation",
+  ".csv": "text/csv",
+  ".tsv": "text/tab-separated-values",
+  ".md": "text/markdown",
+};
+
+function fileExtensionLower(fileName: string): string {
+  const match = /\.[a-z0-9]{1,8}$/i.exec(fileName);
+  return match ? match[0].toLowerCase() : "";
+}
+
+function classifyAttachmentFile(file: File): "image" | "document" | "text" {
+  if (file.type.startsWith("image/")) return "image";
+  if (file.type.length > 0 && CHAT_DOCUMENT_MIME_PATTERN.test(file.type)) return "document";
+  if (DOCUMENT_EXTENSION_WHITELIST.has(fileExtensionLower(file.name))) return "document";
+  return "text";
+}
+
+function inferDocumentMimeFromFile(file: File): string | null {
+  if (file.type.length > 0 && CHAT_DOCUMENT_MIME_PATTERN.test(file.type)) return file.type;
+  const extension = fileExtensionLower(file.name);
+  return Object.hasOwn(DOCUMENT_MIME_BY_EXTENSION, extension)
+    ? (DOCUMENT_MIME_BY_EXTENSION[extension] ?? null)
+    : null;
+}
 const EMPTY_ACTIVITIES: OrchestrationThreadActivity[] = [];
 const EMPTY_PROJECT_ENTRIES: ProjectEntry[] = [];
 const EMPTY_PROVIDERS: ServerProvider[] = [];
@@ -396,11 +455,13 @@ function useLocalDispatchState(input: {
         hasPendingApproval: input.activePendingApproval !== null,
         hasPendingUserInput: input.activePendingUserInput !== null,
         threadError: input.threadError,
+        queueItemsCount: (input.activeThread?.queueItems ?? []).length,
       }),
     [
       input.activeLatestTurn,
       input.activePendingApproval,
       input.activePendingUserInput,
+      input.activeThread?.queueItems,
       input.activeThread?.session,
       input.phase,
       input.threadError,
@@ -629,6 +690,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const composerDraft = useComposerThreadDraft(threadId);
   const prompt = composerDraft.prompt;
   const composerImages = composerDraft.images;
+  const composerDocuments = composerDraft.documents;
   const composerTerminalContexts = composerDraft.terminalContexts;
   const [composerFiles, setComposerFiles] = useState<{ id: string; name: string; file: File }[]>(
     [],
@@ -638,11 +700,17 @@ export default function ChatView({ threadId }: ChatViewProps) {
     () =>
       deriveComposerSendState({
         prompt,
-        imageCount: composerImages.length,
+        imageCount: composerImages.length + composerDocuments.length,
         fileCount: composerFiles.length,
         terminalContexts: composerTerminalContexts,
       }),
-    [composerFiles.length, composerImages.length, composerTerminalContexts, prompt],
+    [
+      composerDocuments.length,
+      composerFiles.length,
+      composerImages.length,
+      composerTerminalContexts,
+      prompt,
+    ],
   );
   const nonPersistedComposerImageIds = composerDraft.nonPersistedImageIds;
   const setComposerDraftPrompt = useComposerDraftStore((store) => store.setPrompt);
@@ -654,6 +722,9 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const addComposerDraftImage = useComposerDraftStore((store) => store.addImage);
   const addComposerDraftImages = useComposerDraftStore((store) => store.addImages);
   const removeComposerDraftImage = useComposerDraftStore((store) => store.removeImage);
+  const addComposerDraftDocument = useComposerDraftStore((store) => store.addDocument);
+  const addComposerDraftDocuments = useComposerDraftStore((store) => store.addDocuments);
+  const removeComposerDraftDocument = useComposerDraftStore((store) => store.removeDocument);
   const insertComposerDraftTerminalContext = useComposerDraftStore(
     (store) => store.insertTerminalContext,
   );
@@ -671,6 +742,12 @@ export default function ChatView({ threadId }: ChatViewProps) {
   );
   const syncComposerDraftPersistedAttachments = useComposerDraftStore(
     (store) => store.syncPersistedAttachments,
+  );
+  const syncComposerDraftPersistedDocumentAttachments = useComposerDraftStore(
+    (store) => store.syncPersistedDocumentAttachments,
+  );
+  const clearComposerDraftPersistedDocumentAttachments = useComposerDraftStore(
+    (store) => store.clearPersistedDocumentAttachments,
   );
   const clearComposerDraftContent = useComposerDraftStore((store) => store.clearComposerContent);
   const setDraftThreadContext = useComposerDraftStore((store) => store.setDraftThreadContext);
@@ -767,6 +844,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const composerFooterLeadingRef = useRef<HTMLDivElement>(null);
   const composerFooterActionsRef = useRef<HTMLDivElement>(null);
   const composerImagesRef = useRef<ComposerImageAttachment[]>([]);
+  const composerDocumentsRef = useRef<ComposerDocumentAttachment[]>([]);
   const composerSelectLockRef = useRef(false);
   const composerMenuOpenRef = useRef(false);
   const composerMenuItemsRef = useRef<ComposerCommandItem[]>([]);
@@ -1036,9 +1114,16 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const threadProvider =
     activeThread?.modelSelection.provider ?? activeProject?.defaultModelSelection?.provider ?? null;
   const hasThreadStarted = threadHasStarted(activeThread);
-  const lockedProvider: ProviderKind | null = hasThreadStarted
-    ? (sessionProvider ?? threadProvider ?? selectedProviderByThreadId ?? null)
-    : null;
+  // Lock the provider picker only while a turn is actively being processed.
+  // Idle/ready/closed/error sessions can be switched to a different provider.
+  const turnInProgress =
+    activeThread?.session != null &&
+    (activeThread.session.status === "running" || activeThread.session.status === "connecting") &&
+    activeThread.session.activeTurnId != null;
+  const lockedProvider: ProviderKind | null =
+    hasThreadStarted && turnInProgress
+      ? (sessionProvider ?? threadProvider ?? selectedProviderByThreadId ?? null)
+      : null;
   const serverConfig = useServerConfig();
   const providerStatuses = serverConfig?.providers ?? EMPTY_PROVIDERS;
   const unlockedSelectedProvider = resolveSelectableProvider(
@@ -1366,8 +1451,13 @@ export default function ChatView({ threadId }: ChatViewProps) {
   }, [serverMessages, attachmentPreviewHandoffByMessageId, optimisticUserMessages]);
   const timelineEntries = useMemo(
     () =>
-      deriveTimelineEntries(timelineMessages, activeThread?.proposedPlans ?? [], workLogEntries),
-    [activeThread?.proposedPlans, timelineMessages, workLogEntries],
+      deriveTimelineEntries(
+        timelineMessages,
+        activeThread?.proposedPlans ?? [],
+        workLogEntries,
+        activeThread?.queueItems ?? [],
+      ),
+    [activeThread?.proposedPlans, activeThread?.queueItems, timelineMessages, workLogEntries],
   );
   const [timelineSearch, timelineSearchActions] = useTimelineSearch(timelineEntries);
   // Close search when switching threads
@@ -2528,7 +2618,8 @@ export default function ChatView({ threadId }: ChatViewProps) {
 
   useEffect(() => {
     composerImagesRef.current = composerImages;
-  }, [composerImages]);
+    composerDocumentsRef.current = composerDocuments;
+  }, [composerDocuments, composerImages]);
 
   useEffect(() => {
     composerTerminalContextsRef.current = composerTerminalContexts;
@@ -2646,6 +2737,61 @@ export default function ChatView({ threadId }: ChatViewProps) {
     clearComposerDraftPersistedAttachments,
     composerImages,
     syncComposerDraftPersistedAttachments,
+    threadId,
+  ]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      if (composerDocuments.length === 0) {
+        clearComposerDraftPersistedDocumentAttachments(threadId);
+        return;
+      }
+      const getPersistedDocumentsForThread = () =>
+        useComposerDraftStore.getState().draftsByThreadId[threadId]?.persistedDocumentAttachments ??
+        [];
+      try {
+        const currentPersisted = getPersistedDocumentsForThread();
+        const existingPersistedById = new Map(
+          currentPersisted.map((attachment) => [attachment.id, attachment]),
+        );
+        const stagedById = new Map<string, PersistedComposerDocumentAttachment>();
+        await Promise.all(
+          composerDocuments.map(async (doc) => {
+            try {
+              const dataUrl = await readFileAsDataUrl(doc.file);
+              stagedById.set(doc.id, {
+                id: doc.id,
+                name: doc.name,
+                mimeType: doc.mimeType,
+                sizeBytes: doc.sizeBytes,
+                dataUrl,
+              });
+            } catch {
+              const existing = existingPersistedById.get(doc.id);
+              if (existing) {
+                stagedById.set(doc.id, existing);
+              }
+            }
+          }),
+        );
+        const serialized = Array.from(stagedById.values());
+        if (cancelled) {
+          return;
+        }
+        syncComposerDraftPersistedDocumentAttachments(threadId, serialized);
+      } catch {
+        if (cancelled) return;
+        syncComposerDraftPersistedDocumentAttachments(threadId, getPersistedDocumentsForThread());
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    clearComposerDraftPersistedDocumentAttachments,
+    composerDocuments,
+    syncComposerDraftPersistedDocumentAttachments,
     threadId,
   ]);
 
@@ -2913,17 +3059,20 @@ export default function ChatView({ threadId }: ChatViewProps) {
     }
 
     const nextImages: ComposerImageAttachment[] = [];
+    const nextDocuments: ComposerDocumentAttachment[] = [];
     const nextFiles: { id: string; name: string; file: File }[] = [];
-    let nextImageCount = composerImagesRef.current.length;
+    let nextAttachmentCount =
+      composerImagesRef.current.length + composerDocumentsRef.current.length;
     let error: string | null = null;
     for (const file of files) {
-      if (file.type.startsWith("image/")) {
+      const kind = classifyAttachmentFile(file);
+      if (kind === "image") {
         if (file.size > PROVIDER_SEND_TURN_MAX_IMAGE_BYTES) {
-          error = `'${file.name}' exceeds the ${IMAGE_SIZE_LIMIT_LABEL} attachment limit.`;
+          error = `'${file.name}' exceeds the ${IMAGE_SIZE_LIMIT_LABEL} image attachment limit.`;
           continue;
         }
-        if (nextImageCount >= PROVIDER_SEND_TURN_MAX_ATTACHMENTS) {
-          error = `You can attach up to ${PROVIDER_SEND_TURN_MAX_ATTACHMENTS} images per message.`;
+        if (nextAttachmentCount >= PROVIDER_SEND_TURN_MAX_ATTACHMENTS) {
+          error = `You can attach up to ${PROVIDER_SEND_TURN_MAX_ATTACHMENTS} files per message.`;
           break;
         }
         const previewUrl = URL.createObjectURL(file);
@@ -2936,16 +3085,50 @@ export default function ChatView({ threadId }: ChatViewProps) {
           previewUrl,
           file,
         });
-        nextImageCount += 1;
-      } else {
-        nextFiles.push({ id: randomUUID(), name: file.name, file });
+        nextAttachmentCount += 1;
+        continue;
       }
+      if (kind === "document") {
+        if (runtimeMode !== "full-access") {
+          error = `Document attachments require full-access runtime (currently ${runtimeMode}).`;
+          continue;
+        }
+        const mimeType = inferDocumentMimeFromFile(file);
+        if (!mimeType) {
+          nextFiles.push({ id: randomUUID(), name: file.name, file });
+          continue;
+        }
+        if (file.size > PROVIDER_SEND_TURN_MAX_DOCUMENT_BYTES) {
+          error = `'${file.name}' exceeds the ${DOCUMENT_SIZE_LIMIT_LABEL} document attachment limit.`;
+          continue;
+        }
+        if (nextAttachmentCount >= PROVIDER_SEND_TURN_MAX_ATTACHMENTS) {
+          error = `You can attach up to ${PROVIDER_SEND_TURN_MAX_ATTACHMENTS} files per message.`;
+          break;
+        }
+        nextDocuments.push({
+          type: "document",
+          id: randomUUID(),
+          name: file.name || "document",
+          mimeType,
+          sizeBytes: file.size,
+          file,
+        });
+        nextAttachmentCount += 1;
+        continue;
+      }
+      nextFiles.push({ id: randomUUID(), name: file.name, file });
     }
 
     if (nextImages.length === 1 && nextImages[0]) {
       addComposerImage(nextImages[0]);
     } else if (nextImages.length > 1) {
       addComposerImagesToDraft(nextImages);
+    }
+    if (nextDocuments.length === 1 && nextDocuments[0]) {
+      addComposerDraftDocument(activeThreadId, nextDocuments[0]);
+    } else if (nextDocuments.length > 1) {
+      addComposerDraftDocuments(activeThreadId, nextDocuments);
     }
     if (nextFiles.length > 0) {
       setComposerFiles((prev) => [...prev, ...nextFiles]);
@@ -3139,6 +3322,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
     beginLocalDispatch({ preparingWorktree: Boolean(baseBranchForWorktree) });
 
     const composerImagesSnapshot = [...composerImages];
+    const composerDocumentsSnapshot = [...composerDocuments];
     const composerFilesSnapshot = [...composerFiles];
     setComposerFiles([]);
     const composerTerminalContextsSnapshot = [...sendableComposerTerminalContexts];
@@ -3172,23 +3356,39 @@ export default function ChatView({ threadId }: ChatViewProps) {
       effort: selectedPromptEffort,
       text: messageTextForSend || IMAGE_ONLY_BOOTSTRAP_PROMPT,
     });
-    const turnAttachmentsPromise = Promise.all(
-      composerImagesSnapshot.map(async (image) => ({
+    const turnAttachmentsPromise = Promise.all([
+      ...composerImagesSnapshot.map(async (image) => ({
         type: "image" as const,
         name: image.name,
         mimeType: image.mimeType,
         sizeBytes: image.sizeBytes,
         dataUrl: await readFileAsDataUrl(image.file),
       })),
-    );
-    const optimisticAttachments = composerImagesSnapshot.map((image) => ({
-      type: "image" as const,
-      id: image.id,
-      name: image.name,
-      mimeType: image.mimeType,
-      sizeBytes: image.sizeBytes,
-      previewUrl: image.previewUrl,
-    }));
+      ...composerDocumentsSnapshot.map(async (doc) => ({
+        type: "document" as const,
+        name: doc.name,
+        mimeType: doc.mimeType,
+        sizeBytes: doc.sizeBytes,
+        dataUrl: await readFileAsDataUrl(doc.file),
+      })),
+    ]);
+    const optimisticAttachments = [
+      ...composerImagesSnapshot.map((image) => ({
+        type: "image" as const,
+        id: image.id,
+        name: image.name,
+        mimeType: image.mimeType,
+        sizeBytes: image.sizeBytes,
+        previewUrl: image.previewUrl,
+      })),
+      ...composerDocumentsSnapshot.map((doc) => ({
+        type: "document" as const,
+        id: doc.id,
+        name: doc.name,
+        mimeType: doc.mimeType,
+        sizeBytes: doc.sizeBytes,
+      })),
+    ];
     setOptimisticUserMessages((existing) => [
       ...existing,
       {
@@ -3325,6 +3525,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
         !turnStartSucceeded &&
         promptRef.current.length === 0 &&
         composerImagesRef.current.length === 0 &&
+        composerDocumentsRef.current.length === 0 &&
         composerTerminalContextsRef.current.length === 0
       ) {
         setOptimisticUserMessages((existing) => {
@@ -3339,6 +3540,9 @@ export default function ChatView({ threadId }: ChatViewProps) {
         setPrompt(promptForSend);
         setComposerCursor(collapseExpandedComposerCursor(promptForSend, promptForSend.length));
         addComposerImagesToDraft(composerImagesSnapshot.map(cloneComposerImageForRetry));
+        if (composerDocumentsSnapshot.length > 0) {
+          addComposerDraftDocuments(threadIdForSend, composerDocumentsSnapshot);
+        }
         addComposerTerminalContextsToDraft(composerTerminalContextsSnapshot);
         setComposerTrigger(detectComposerTrigger(promptForSend, promptForSend.length));
       }
@@ -4219,6 +4423,52 @@ export default function ChatView({ threadId }: ChatViewProps) {
     void onRevertToTurnCount(targetTurnCount);
   };
 
+  const onEditQueueItem = useCallback(
+    (queueItemId: MessageId, nextText: string) => {
+      const api = readNativeApi();
+      if (!api || !activeThread) return;
+      void api.orchestration
+        .dispatchCommand({
+          type: "thread.queue-item.edit",
+          commandId: newCommandId(),
+          threadId: activeThread.id,
+          queueItemId,
+          text: nextText,
+          attachments: [],
+          createdAt: new Date().toISOString(),
+        })
+        .catch((err: unknown) => {
+          setThreadError(
+            activeThread.id,
+            err instanceof Error ? err.message : "Failed to edit queued message.",
+          );
+        });
+    },
+    [activeThread, setThreadError],
+  );
+
+  const onCancelQueueItem = useCallback(
+    (queueItemId: MessageId) => {
+      const api = readNativeApi();
+      if (!api || !activeThread) return;
+      void api.orchestration
+        .dispatchCommand({
+          type: "thread.queue-item.cancel",
+          commandId: newCommandId(),
+          threadId: activeThread.id,
+          queueItemId,
+          createdAt: new Date().toISOString(),
+        })
+        .catch((err: unknown) => {
+          setThreadError(
+            activeThread.id,
+            err instanceof Error ? err.message : "Failed to cancel queued message.",
+          );
+        });
+    },
+    [activeThread, setThreadError],
+  );
+
   // Empty state: no active thread
   if (!activeThread) {
     return (
@@ -4347,6 +4597,8 @@ export default function ChatView({ threadId }: ChatViewProps) {
                   revertTurnCountByUserMessageId={revertTurnCountByUserMessageId}
                   onRevertUserMessage={onRevertUserMessage}
                   isRevertingCheckpoint={isRevertingCheckpoint}
+                  onEditQueueItem={onEditQueueItem}
+                  onCancelQueueItem={onCancelQueueItem}
                   onImageExpand={onExpandTimelineImage}
                   markdownCwd={gitCwd ?? undefined}
                   resolvedTheme={resolvedTheme}
@@ -4445,7 +4697,9 @@ export default function ChatView({ threadId }: ChatViewProps) {
 
                     {!isComposerApprovalState &&
                       pendingUserInputs.length === 0 &&
-                      (composerImages.length > 0 || composerFiles.length > 0) && (
+                      (composerImages.length > 0 ||
+                        composerDocuments.length > 0 ||
+                        composerFiles.length > 0) && (
                         <div className="mb-3 flex flex-wrap gap-2">
                           {composerImages.map((image) => (
                             <div
@@ -4505,6 +4759,30 @@ export default function ChatView({ threadId }: ChatViewProps) {
                                 className="absolute right-1 top-1 bg-background/80 hover:bg-background/90"
                                 onClick={() => removeComposerImage(image.id)}
                                 aria-label={`Remove ${image.name}`}
+                              >
+                                <XIcon />
+                              </Button>
+                            </div>
+                          ))}
+                          {composerDocuments.map((doc) => (
+                            <div
+                              key={doc.id}
+                              className="relative flex h-16 items-center gap-1.5 overflow-hidden rounded-lg border border-border/80 bg-background pl-2 pr-7"
+                              title={`${doc.name} (${doc.mimeType})`}
+                            >
+                              <FileIcon className="size-4 shrink-0 text-muted-foreground/70" />
+                              <span className="max-w-32 truncate text-[11px] text-muted-foreground">
+                                {doc.name}
+                              </span>
+                              <Button
+                                variant="ghost"
+                                size="icon-xs"
+                                className="absolute right-1 top-1 bg-background/80 hover:bg-background/90"
+                                onClick={() => {
+                                  if (!activeThreadId) return;
+                                  removeComposerDraftDocument(activeThreadId, doc.id);
+                                }}
+                                aria-label={`Remove ${doc.name}`}
                               >
                                 <XIcon />
                               </Button>

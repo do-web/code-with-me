@@ -21,6 +21,7 @@ import {
 import { normalizeModelSlug } from "@codewithme/shared/model";
 import { Effect, ServiceMap } from "effect";
 
+import * as ChildProcessRegistry from "./childProcessRegistry";
 import {
   formatCodexCliUpgradeMessage,
   isCodexCliVersionSupported,
@@ -32,6 +33,8 @@ import {
   type CodexAccountSnapshot,
 } from "./provider/codexAccount";
 import { buildCodexInitializeParams, killCodexChildProcess } from "./provider/codexAppServer";
+
+const IS_WINDOWS = process.platform === "win32";
 
 export { buildCodexInitializeParams } from "./provider/codexAppServer";
 export { readCodexAccountSnapshot, resolveCodexModelForAccount } from "./provider/codexAccount";
@@ -444,6 +447,15 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     let context: CodexSessionContext | undefined;
 
     try {
+      // Double-start guard: if a session for this threadId already exists
+      // (reconnect, resume-after-error, rapid client reload), stop the old
+      // child before overwriting the map entry. Otherwise `sessions.set`
+      // below would drop the reference and leak the old codex app-server.
+      const existing = this.sessions.get(threadId);
+      if (existing) {
+        this.stopSession(threadId);
+      }
+
       const resolvedCwd = input.cwd ?? process.cwd();
 
       const session: ProviderSession = {
@@ -471,8 +483,22 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
           ...(codexHomePath ? { CODEX_HOME: codexHomePath } : {}),
         },
         stdio: ["pipe", "pipe", "pipe"],
-        shell: process.platform === "win32",
+        shell: IS_WINDOWS,
+        // POSIX: run the child in its own process group so `process.kill(-pid)`
+        // takes the entire tree (codex + any sub-tools it spawns). Windows
+        // keeps the default behavior since `taskkill /T /F` already covers
+        // the tree there.
+        detached: !IS_WINDOWS,
       });
+
+      if (child.pid !== undefined) {
+        ChildProcessRegistry.register({
+          pid: child.pid,
+          ...(!IS_WINDOWS ? { pgid: child.pid } : {}),
+          label: `codex:${threadId}`,
+        });
+      }
+
       const output = readline.createInterface({ input: child.stdout });
 
       context = {
@@ -916,6 +942,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     if (!context.child.killed) {
       killChildTree(context.child);
     }
+    ChildProcessRegistry.unregister(context.child.pid);
 
     this.updateSession(context, {
       status: "closed",
@@ -988,6 +1015,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       context.child.stdout.removeAllListeners();
       context.child.stderr.removeAllListeners();
       context.child.removeAllListeners();
+      ChildProcessRegistry.unregister(context.child.pid);
 
       if (context.stopping) {
         return;

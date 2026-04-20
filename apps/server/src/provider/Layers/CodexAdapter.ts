@@ -1463,6 +1463,12 @@ const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
     input: ProviderSendTurnInput,
     attachment: NonNullable<ProviderSendTurnInput["attachments"]>[number],
   ) {
+    // Document attachments are surfaced to the agent via path references in
+    // the prompt text (see ProviderCommandReactor). They are not passed
+    // through Codex's native attachments channel.
+    if (attachment.type !== "image") {
+      return null;
+    }
     const attachmentPath = resolveAttachmentPath({
       attachmentsDir: serverConfig.attachmentsDir,
       attachment,
@@ -1492,10 +1498,13 @@ const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
   });
 
   const sendTurn: CodexAdapterShape["sendTurn"] = Effect.fn("sendTurn")(function* (input) {
-    const codexAttachments = yield* Effect.forEach(
+    const resolvedAttachments = yield* Effect.forEach(
       input.attachments ?? [],
       (attachment) => resolveAttachment(input, attachment),
       { concurrency: 1 },
+    );
+    const codexAttachments = resolvedAttachments.filter(
+      (attachment): attachment is NonNullable<typeof attachment> => attachment !== null,
     );
     const sanitizedInput = sanitizeCodexConversationText(input.input)?.trim();
 

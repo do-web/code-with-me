@@ -1,7 +1,12 @@
 import { type MessageId } from "@codewithme/contracts";
 import { type TimelineEntry, type WorkLogEntry } from "../../session-logic";
 import { buildTurnDiffTree, type TurnDiffTreeNode } from "../../lib/turnDiffTree";
-import { type ChatMessage, type ProposedPlan, type TurnDiffSummary } from "../../types";
+import {
+  type ChatMessage,
+  type ProposedPlan,
+  type QueueItem,
+  type TurnDiffSummary,
+} from "../../types";
 import { estimateTimelineMessageHeight } from "../timelineHeight";
 
 export const MAX_VISIBLE_WORK_LOG_ENTRIES = 6;
@@ -33,6 +38,13 @@ export type MessagesTimelineRow =
       id: string;
       createdAt: string;
       proposedPlan: ProposedPlan;
+    }
+  | {
+      kind: "queue-item";
+      id: string;
+      createdAt: string;
+      item: QueueItem;
+      position: number;
     }
   | { kind: "working"; id: string; createdAt: string | null };
 
@@ -105,6 +117,17 @@ export function deriveMessagesTimelineRows(input: {
       continue;
     }
 
+    if (timelineEntry.kind === "queue-item") {
+      nextRows.push({
+        kind: "queue-item",
+        id: timelineEntry.id,
+        createdAt: timelineEntry.createdAt,
+        item: timelineEntry.item,
+        position: timelineEntry.position,
+      });
+      continue;
+    }
+
     nextRows.push({
       kind: "message",
       id: timelineEntry.id,
@@ -144,6 +167,11 @@ export function estimateMessagesTimelineRowHeight(
       return estimateTimelineProposedPlanHeight(row.proposedPlan);
     case "working":
       return 40;
+    case "queue-item": {
+      // Rough estimate — similar height to a short user message.
+      const estimatedLines = Math.max(1, Math.ceil(row.item.text.length / 72));
+      return 70 + Math.min(estimatedLines * 22, 220);
+    }
     case "message": {
       let estimate = estimateTimelineMessageHeight(row.message, {
         timelineWidthPx: input.timelineWidthPx,

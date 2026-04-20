@@ -347,6 +347,45 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       if (!hasSendableMessage) {
         return [];
       }
+
+      // Decide: enqueue or dispatch now. Bootstrap scenarios ALWAYS dispatch
+      // (first turn must set up worktree/title/session). A turn is active if
+      // either the session snapshot reports an activeTurnId, OR a
+      // turn-start-requested was projected that hasn't completed yet
+      // (pendingTurnStart closes the TOCTOU gap between sendTurn and the
+      // provider's turn.started confirmation).
+      const hasActiveTurn =
+        (targetThread.session !== null && targetThread.session.activeTurnId !== null) ||
+        targetThread.pendingTurnStart !== null;
+      const shouldEnqueue = command.bootstrap === undefined && hasActiveTurn;
+
+      if (shouldEnqueue) {
+        // Enqueue: emit only queue-item-enqueued. No message-sent yet — the
+        // message enters the thread only when dispatched (preserves message
+        // immutability, allows edits while queued).
+        const enqueuedEvent: Omit<OrchestrationEvent, "sequence"> = {
+          ...withEventBase({
+            aggregateKind: "thread",
+            aggregateId: command.threadId,
+            occurredAt: command.createdAt,
+            commandId: command.commandId,
+          }),
+          type: "thread.queue-item-enqueued",
+          payload: {
+            threadId: command.threadId,
+            queueItemId: command.message.messageId,
+            text: sanitizedMessageText,
+            attachments: command.message.attachments,
+            modelSelection: command.modelSelection ?? null,
+            runtimeMode: targetThread.runtimeMode,
+            interactionMode: targetThread.interactionMode,
+            ...(sourceProposedPlan !== undefined ? { sourceProposedPlan } : {}),
+            enqueuedAt: command.createdAt,
+          },
+        };
+        return enqueuedEvent;
+      }
+
       const userMessageEvent: Omit<OrchestrationEvent, "sequence"> = {
         ...withEventBase({
           aggregateKind: "thread",
@@ -390,6 +429,172 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         },
       };
       return [userMessageEvent, turnStartRequestedEvent];
+    }
+
+    case "thread.queue-item.edit": {
+      const targetThread = yield* requireThread({
+        readModel,
+        command,
+        threadId: command.threadId,
+      });
+      const queueItem = targetThread.queueItems.find((entry) => entry.id === command.queueItemId);
+      if (queueItem === undefined) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Queue item '${command.queueItemId}' does not exist on thread '${command.threadId}'.`,
+        });
+      }
+      if (queueItem.status !== "queued") {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Queue item '${command.queueItemId}' is already ${queueItem.status} and cannot be edited.`,
+        });
+      }
+      return {
+        ...withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        }),
+        type: "thread.queue-item-edited",
+        payload: {
+          threadId: command.threadId,
+          queueItemId: command.queueItemId,
+          text: sanitizeCodexConversationText(command.text) ?? "",
+          attachments: command.attachments,
+          updatedAt: command.createdAt,
+        },
+      };
+    }
+
+    case "thread.queue-item.cancel": {
+      const targetThread = yield* requireThread({
+        readModel,
+        command,
+        threadId: command.threadId,
+      });
+      const queueItem = targetThread.queueItems.find((entry) => entry.id === command.queueItemId);
+      if (queueItem === undefined) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Queue item '${command.queueItemId}' does not exist on thread '${command.threadId}'.`,
+        });
+      }
+      if (queueItem.status !== "queued") {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Queue item '${command.queueItemId}' is already ${queueItem.status} and cannot be cancelled.`,
+        });
+      }
+      return {
+        ...withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        }),
+        type: "thread.queue-item-cancelled",
+        payload: {
+          threadId: command.threadId,
+          queueItemId: command.queueItemId,
+          cancelledAt: command.createdAt,
+        },
+      };
+    }
+
+    case "thread.turn.complete": {
+      yield* requireThread({
+        readModel,
+        command,
+        threadId: command.threadId,
+      });
+      return {
+        ...withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        }),
+        type: "thread.turn-completed",
+        payload: {
+          threadId: command.threadId,
+          turnId: command.turnId,
+          status: command.status,
+          completedAt: command.completedAt,
+        },
+      };
+    }
+
+    case "thread.queue-item.dispatch": {
+      const targetThread = yield* requireThread({
+        readModel,
+        command,
+        threadId: command.threadId,
+      });
+      const queueItem = targetThread.queueItems.find((entry) => entry.id === command.queueItemId);
+      if (queueItem === undefined || queueItem.status !== "queued") {
+        // No-op: item no longer dispatchable (cancelled/already dispatched).
+        return [];
+      }
+      const userMessageEvent: Omit<OrchestrationEvent, "sequence"> = {
+        ...withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        }),
+        type: "thread.message-sent",
+        payload: {
+          threadId: command.threadId,
+          messageId: queueItem.id,
+          role: "user",
+          text: queueItem.text,
+          attachments: queueItem.attachments,
+          turnId: null,
+          streaming: false,
+          createdAt: queueItem.enqueuedAt,
+          updatedAt: command.createdAt,
+        },
+      };
+      const turnStartRequestedEvent: Omit<OrchestrationEvent, "sequence"> = {
+        ...withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        }),
+        causationEventId: userMessageEvent.eventId,
+        type: "thread.turn-start-requested",
+        payload: {
+          threadId: command.threadId,
+          messageId: queueItem.id,
+          ...(queueItem.modelSelection !== null
+            ? { modelSelection: queueItem.modelSelection }
+            : {}),
+          runtimeMode: queueItem.runtimeMode,
+          interactionMode: queueItem.interactionMode,
+          ...(queueItem.sourceProposedPlan !== undefined
+            ? { sourceProposedPlan: queueItem.sourceProposedPlan }
+            : {}),
+          createdAt: command.createdAt,
+        },
+      };
+      const dispatchedEvent: Omit<OrchestrationEvent, "sequence"> = {
+        ...withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        }),
+        type: "thread.queue-item-dispatched",
+        payload: {
+          threadId: command.threadId,
+          queueItemId: queueItem.id,
+          dispatchedAt: command.createdAt,
+        },
+      };
+      return [userMessageEvent, turnStartRequestedEvent, dispatchedEvent];
     }
 
     case "thread.turn.interrupt": {

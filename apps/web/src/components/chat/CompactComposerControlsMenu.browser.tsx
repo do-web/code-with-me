@@ -22,6 +22,9 @@ async function mountMenu(props?: { modelSelection?: ModelSelection; prompt?: str
     images: [],
     nonPersistedImageIds: [],
     persistedAttachments: [],
+    documents: [],
+    nonPersistedDocumentIds: [],
+    persistedDocumentAttachments: [],
     terminalContexts: [],
     modelSelectionByProvider: {
       [provider]: {

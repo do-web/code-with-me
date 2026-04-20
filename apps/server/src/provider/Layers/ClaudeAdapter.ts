@@ -62,6 +62,7 @@ import {
 } from "effect";
 
 import { resolveAttachmentPath } from "../../attachmentStore.ts";
+import * as ClaudeCleanupHooks from "../../claudeCleanupHooks.ts";
 import { ServerConfig } from "../../config.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { getClaudeModelCapabilities } from "./ClaudeProvider.ts";
@@ -163,6 +164,14 @@ interface ClaudeSessionContext {
   lastAssistantUuid: string | undefined;
   lastThreadStartedId: string | undefined;
   stopped: boolean;
+  /**
+   * Synchronous cleanup hook registered with `ClaudeCleanupHooks`. Invoked
+   * from the process-wide signal handlers when the server is going down, so
+   * the SDK's query handle (and any stdio-MCP children it may own) can be
+   * closed best-effort before the event loop tears down. Set when the
+   * session starts, cleared on graceful stop.
+   */
+  cleanupHook: (() => void) | undefined;
 }
 
 interface ClaudeQueryRuntime extends AsyncIterable<SDKMessage> {
@@ -215,11 +224,11 @@ function normalizeClaudeStreamMessages(cause: Cause.Cause<Error>): ReadonlyArray
 
 function getEffectiveClaudeCodeEffort(
   effort: ClaudeCodeEffort | null | undefined,
-): Exclude<ClaudeCodeEffort, "ultrathink"> | null {
+): Exclude<ClaudeCodeEffort, "ultrathink" | "xhigh"> | null {
   if (!effort) {
     return null;
   }
-  return effort === "ultrathink" ? null : effort;
+  return effort === "ultrathink" || effort === "xhigh" ? null : effort;
 }
 
 function isClaudeInterruptedMessage(message: string): boolean {
@@ -2312,6 +2321,14 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
       yield* emitRuntimeError(context, "Failed to close Claude runtime query.", cause);
     }
 
+    // Detach the process-wide shutdown hook now that we've closed the query
+    // ourselves; otherwise the hook would fire a second time during signal
+    // handling and call `query.close()` on an already-closed handle.
+    if (context.cleanupHook) {
+      ClaudeCleanupHooks.remove(context.cleanupHook);
+      context.cleanupHook = undefined;
+    }
+
     const updatedAt = yield* nowIso;
     context.session = {
       ...context.session,
@@ -2751,6 +2768,15 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         updatedAt: startedAt,
       };
 
+      // Double-start guard: if a session for this threadId is still alive
+      // (client reconnect, resume after error), stop it before overwriting.
+      // Otherwise the old SDK query handle leaks — and with it any stdio-MCP
+      // children the SDK might own.
+      const priorContext = sessions.get(threadId);
+      if (priorContext && !priorContext.stopped) {
+        yield* stopSessionInternal(priorContext, { emitExitEvent: false });
+      }
+
       const context: ClaudeSessionContext = {
         session,
         promptQueue,
@@ -2770,9 +2796,23 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         lastAssistantUuid: resumeState?.resumeSessionAt,
         lastThreadStartedId: undefined,
         stopped: false,
+        cleanupHook: undefined,
       };
       yield* Ref.set(contextRef, context);
       sessions.set(threadId, context);
+
+      // Register a synchronous cleanup hook with the process-wide signal
+      // handler. On SIGINT/SIGTERM we get one best-effort chance to close
+      // the SDK's query handle before the event loop shuts down.
+      const cleanupHook = (): void => {
+        try {
+          context.query.close();
+        } catch {
+          /* query already closed or SDK in bad state — swallow */
+        }
+      };
+      context.cleanupHook = cleanupHook;
+      ClaudeCleanupHooks.add(cleanupHook);
 
       const sessionStartedStamp = yield* makeEventStamp();
       yield* offerRuntimeEvent({

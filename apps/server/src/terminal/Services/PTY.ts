@@ -38,6 +38,13 @@ export interface PtySpawnInput {
   cols: number;
   rows: number;
   env: NodeJS.ProcessEnv;
+  /**
+   * Stable identifier used for the child-process registry label
+   * (e.g. `"pty:<projectId>:<terminalId>"`). The PTY adapter registers the
+   * spawned process under this label so crash-path shutdown and startup
+   * orphan cleanup can target it.
+   */
+  label: string;
 }
 
 /**

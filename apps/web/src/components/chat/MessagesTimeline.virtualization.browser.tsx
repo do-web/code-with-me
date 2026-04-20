@@ -164,6 +164,8 @@ function createBaseTimelineProps(input: {
     revertTurnCountByUserMessageId: new Map(),
     onRevertUserMessage: () => {},
     isRevertingCheckpoint: false,
+    onEditQueueItem: () => {},
+    onCancelQueueItem: () => {},
     onImageExpand: () => {},
     markdownCwd: MARKDOWN_CWD,
     resolvedTheme: "light",

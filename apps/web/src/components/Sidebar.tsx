@@ -220,6 +220,27 @@ function terminalStatusFromRunningIds(
   };
 }
 
+function ProjectTerminalStatusIcon({ projectId }: { projectId: ProjectId }) {
+  const runningTerminalIds = useTerminalStateStore(
+    (state) =>
+      selectProjectTerminalState(state.terminalStateByProjectId, projectId).runningTerminalIds,
+  );
+  const terminalStatus = terminalStatusFromRunningIds(runningTerminalIds);
+  if (!terminalStatus) {
+    return null;
+  }
+  return (
+    <span
+      role="img"
+      aria-label={terminalStatus.label}
+      title={terminalStatus.label}
+      className={`inline-flex shrink-0 items-center justify-center transition-opacity duration-150 group-hover/project-header:opacity-0 ${terminalStatus.colorClass}`}
+    >
+      <TerminalIcon className={`size-3.5 ${terminalStatus.pulse ? "animate-pulse" : ""}`} />
+    </span>
+  );
+}
+
 function prStatusIndicator(pr: ThreadPr): PrStatusIndicator | null {
   if (!pr) return null;
 
@@ -288,13 +309,6 @@ interface SidebarThreadRowProps {
 function SidebarThreadRow(props: SidebarThreadRowProps) {
   const thread = useSidebarThreadSummaryById(props.threadId);
   const lastVisitedAt = useUiStateStore((state) => state.threadLastVisitedAtById[props.threadId]);
-  const runningTerminalIds = useTerminalStateStore(
-    (state) =>
-      selectProjectTerminalState(
-        state.terminalStateByProjectId,
-        thread?.projectId ?? ("" as ProjectId),
-      ).runningTerminalIds,
-  );
 
   if (!thread) {
     return null;
@@ -312,7 +326,6 @@ function SidebarThreadRow(props: SidebarThreadRowProps) {
     },
   });
   const prStatus = prStatusIndicator(props.pr);
-  const terminalStatus = terminalStatusFromRunningIds(runningTerminalIds);
   const isConfirmingArchive = props.confirmingArchiveThreadId === thread.id && !isThreadRunning;
   const threadMetaClassName = isConfirmingArchive
     ? "pointer-events-none opacity-0"
@@ -429,16 +442,6 @@ function SidebarThreadRow(props: SidebarThreadRowProps) {
           )}
         </div>
         <div className="ml-auto flex shrink-0 items-center gap-1.5">
-          {terminalStatus && (
-            <span
-              role="img"
-              aria-label={terminalStatus.label}
-              title={terminalStatus.label}
-              className={`inline-flex items-center justify-center ${terminalStatus.colorClass}`}
-            >
-              <TerminalIcon className={`size-3 ${terminalStatus.pulse ? "animate-pulse" : ""}`} />
-            </span>
-          )}
           <div className="flex min-w-12 justify-end">
             {isConfirmingArchive ? (
               <button
@@ -1699,6 +1702,7 @@ export default function Sidebar() {
             <span className="flex-1 truncate text-sm font-semibold text-foreground/90">
               {project.name}
             </span>
+            <ProjectTerminalStatusIcon projectId={project.id} />
           </SidebarMenuButton>
           <Tooltip>
             <TooltipTrigger

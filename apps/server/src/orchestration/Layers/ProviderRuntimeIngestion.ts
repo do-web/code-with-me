@@ -1160,6 +1160,28 @@ const make = Effect.fn("make")(function* () {
           turnId,
           updatedAt: now,
         });
+
+        // Dispatch thread.turn.complete so the Reactor can drain the queue.
+        // This fires for every turn end state (completed/failed/interrupted),
+        // not just turns that produce a git diff.
+        const rawState = (event.payload as { state?: string }).state;
+        const completionStatus: "completed" | "failed" | "interrupted" | "cancelled" =
+          rawState === "failed"
+            ? "failed"
+            : rawState === "interrupted"
+              ? "interrupted"
+              : rawState === "cancelled"
+                ? "cancelled"
+                : "completed";
+        yield* orchestrationEngine.dispatch({
+          type: "thread.turn.complete",
+          commandId: providerCommandId(event, "thread-turn-complete"),
+          threadId: thread.id,
+          turnId,
+          status: completionStatus,
+          completedAt: now,
+          createdAt: now,
+        });
       }
 
       const turnCost = (event.payload as { totalCostUsd?: number }).totalCostUsd;
@@ -1181,6 +1203,21 @@ const make = Effect.fn("make")(function* () {
 
       // Usage stats are refreshed via 5-minute polling in serverRuntimeStartup.
       // No per-turn probing — Claude CLI has a hard rate limit on /usage.
+    }
+
+    if (event.type === "turn.aborted") {
+      const turnId = toTurnId(event.turnId);
+      if (turnId) {
+        yield* orchestrationEngine.dispatch({
+          type: "thread.turn.complete",
+          commandId: providerCommandId(event, "thread-turn-complete-aborted"),
+          threadId: thread.id,
+          turnId,
+          status: "cancelled",
+          completedAt: now,
+          createdAt: now,
+        });
+      }
     }
 
     if (event.type === "session.exited") {

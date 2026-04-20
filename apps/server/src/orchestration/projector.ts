@@ -20,7 +20,14 @@ import {
   ThreadInteractionModeSetPayload,
   ThreadMetaUpdatedPayload,
   ThreadProposedPlanUpsertedPayload,
+  ThreadQueueItemCancelledPayload,
+  ThreadQueueItemDispatchedPayload,
+  ThreadQueueItemEditedPayload,
+  ThreadQueueItemEnqueuedPayload,
   ThreadRuntimeModeSetPayload,
+  ThreadTurnCompletedPayload,
+  ThreadTurnInterruptRequestedPayload,
+  ThreadTurnStartRequestedPayload,
   ThreadUnarchivedPayload,
   ThreadRevertedPayload,
   ThreadSessionSetPayload,
@@ -268,6 +275,8 @@ export function projectEvent(
             activities: [],
             checkpoints: [],
             session: null,
+            queueItems: [],
+            pendingTurnStart: null,
           },
           event.type,
           "thread",
@@ -642,6 +651,209 @@ export function projectEvent(
             ...nextBase,
             threads: updateThread(nextBase.threads, payload.threadId, {
               activities,
+              updatedAt: event.occurredAt,
+            }),
+          };
+        }),
+      );
+
+    case "thread.turn-start-requested":
+      return decodeForEvent(
+        ThreadTurnStartRequestedPayload,
+        event.payload,
+        event.type,
+        "payload",
+      ).pipe(
+        Effect.map((payload) => {
+          const thread = nextBase.threads.find((entry) => entry.id === payload.threadId);
+          if (!thread) {
+            return nextBase;
+          }
+          // Mark the turn as pending so subsequent thread.turn.start commands
+          // enqueue instead of racing with the provider's async turn.started.
+          return {
+            ...nextBase,
+            threads: updateThread(nextBase.threads, payload.threadId, {
+              pendingTurnStart: payload.messageId,
+              updatedAt: event.occurredAt,
+            }),
+          };
+        }),
+      );
+
+    case "thread.turn-interrupt-requested":
+      return decodeForEvent(
+        ThreadTurnInterruptRequestedPayload,
+        event.payload,
+        event.type,
+        "payload",
+      ).pipe(
+        Effect.map((payload) => ({
+          ...nextBase,
+          threads: updateThread(nextBase.threads, payload.threadId, {
+            // Interrupt releases the pending marker — a turn.completed with
+            // status "interrupted" will follow, but we clear eagerly so that
+            // concurrent enqueue decisions are stable.
+            pendingTurnStart: null,
+            updatedAt: event.occurredAt,
+          }),
+        })),
+      );
+
+    case "thread.turn-completed":
+      return decodeForEvent(ThreadTurnCompletedPayload, event.payload, event.type, "payload").pipe(
+        Effect.map((payload) => {
+          const thread = nextBase.threads.find((entry) => entry.id === payload.threadId);
+          if (!thread) {
+            return nextBase;
+          }
+          // Only update latestTurn.state if it still references this turn — a
+          // later turn-diff-completed may have already transitioned it.
+          const updatedLatestTurn =
+            thread.latestTurn !== null && thread.latestTurn.turnId === payload.turnId
+              ? {
+                  ...thread.latestTurn,
+                  state:
+                    payload.status === "completed"
+                      ? ("completed" as const)
+                      : payload.status === "failed"
+                        ? ("error" as const)
+                        : ("interrupted" as const),
+                  completedAt: payload.completedAt,
+                }
+              : null;
+          const patch: ThreadPatch = {
+            pendingTurnStart: null,
+            updatedAt: event.occurredAt,
+            ...(updatedLatestTurn !== null ? { latestTurn: updatedLatestTurn } : {}),
+          };
+          return {
+            ...nextBase,
+            threads: updateThread(nextBase.threads, payload.threadId, patch),
+          };
+        }),
+      );
+
+    case "thread.queue-item-enqueued":
+      return decodeForEvent(
+        ThreadQueueItemEnqueuedPayload,
+        event.payload,
+        event.type,
+        "payload",
+      ).pipe(
+        Effect.map((payload) => {
+          const thread = nextBase.threads.find((entry) => entry.id === payload.threadId);
+          if (!thread) {
+            return nextBase;
+          }
+          // Idempotency: if a queue item with the same id already exists, skip.
+          if (thread.queueItems.some((entry) => entry.id === payload.queueItemId)) {
+            return nextBase;
+          }
+          const item: OrchestrationThread["queueItems"][number] = {
+            id: payload.queueItemId,
+            text: payload.text,
+            attachments: payload.attachments,
+            modelSelection: payload.modelSelection,
+            runtimeMode: payload.runtimeMode,
+            interactionMode: payload.interactionMode,
+            ...(payload.sourceProposedPlan !== undefined
+              ? { sourceProposedPlan: payload.sourceProposedPlan }
+              : {}),
+            status: "queued",
+            enqueuedAt: payload.enqueuedAt,
+            updatedAt: payload.enqueuedAt,
+          };
+          return {
+            ...nextBase,
+            threads: updateThread(nextBase.threads, payload.threadId, {
+              queueItems: [...thread.queueItems, item],
+              updatedAt: event.occurredAt,
+            }),
+          };
+        }),
+      );
+
+    case "thread.queue-item-edited":
+      return decodeForEvent(
+        ThreadQueueItemEditedPayload,
+        event.payload,
+        event.type,
+        "payload",
+      ).pipe(
+        Effect.map((payload) => {
+          const thread = nextBase.threads.find((entry) => entry.id === payload.threadId);
+          if (!thread) {
+            return nextBase;
+          }
+          const queueItems = thread.queueItems.map((entry) =>
+            entry.id === payload.queueItemId && entry.status === "queued"
+              ? {
+                  ...entry,
+                  text: payload.text,
+                  attachments: payload.attachments,
+                  updatedAt: payload.updatedAt,
+                }
+              : entry,
+          );
+          return {
+            ...nextBase,
+            threads: updateThread(nextBase.threads, payload.threadId, {
+              queueItems,
+              updatedAt: event.occurredAt,
+            }),
+          };
+        }),
+      );
+
+    case "thread.queue-item-cancelled":
+      return decodeForEvent(
+        ThreadQueueItemCancelledPayload,
+        event.payload,
+        event.type,
+        "payload",
+      ).pipe(
+        Effect.map((payload) => {
+          const thread = nextBase.threads.find((entry) => entry.id === payload.threadId);
+          if (!thread) {
+            return nextBase;
+          }
+          const queueItems = thread.queueItems.map((entry) =>
+            entry.id === payload.queueItemId && entry.status === "queued"
+              ? { ...entry, status: "cancelled" as const, updatedAt: payload.cancelledAt }
+              : entry,
+          );
+          return {
+            ...nextBase,
+            threads: updateThread(nextBase.threads, payload.threadId, {
+              queueItems,
+              updatedAt: event.occurredAt,
+            }),
+          };
+        }),
+      );
+
+    case "thread.queue-item-dispatched":
+      return decodeForEvent(
+        ThreadQueueItemDispatchedPayload,
+        event.payload,
+        event.type,
+        "payload",
+      ).pipe(
+        Effect.map((payload) => {
+          const thread = nextBase.threads.find((entry) => entry.id === payload.threadId);
+          if (!thread) {
+            return nextBase;
+          }
+          const queueItems = thread.queueItems.map((entry) =>
+            entry.id === payload.queueItemId && entry.status === "queued"
+              ? { ...entry, status: "dispatched" as const, updatedAt: payload.dispatchedAt }
+              : entry,
+          );
+          return {
+            ...nextBase,
+            threads: updateThread(nextBase.threads, payload.threadId, {
+              queueItems,
               updatedAt: event.occurredAt,
             }),
           };

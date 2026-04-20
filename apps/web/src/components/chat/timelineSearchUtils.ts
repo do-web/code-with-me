@@ -27,6 +27,8 @@ export function extractSearchableText(entry: TimelineEntry): string {
     }
     case "proposed-plan":
       return entry.proposedPlan.planMarkdown;
+    case "queue-item":
+      return entry.item.text;
   }
 }
 

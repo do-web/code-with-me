@@ -17,7 +17,7 @@ export function ProjectFavicon({ cwd, className }: { cwd: string; className?: st
   return (
     <>
       {status !== "loaded" ? (
-        <FolderIcon className={`size-3.5 shrink-0 text-muted-foreground/50 ${className ?? ""}`} />
+        <FolderIcon className={`size-3.5 shrink-0 text-foreground/60 ${className ?? ""}`} />
       ) : null}
       <img
         src={src}

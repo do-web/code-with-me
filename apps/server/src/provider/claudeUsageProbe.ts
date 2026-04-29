@@ -35,17 +35,22 @@ function parseUsageLines(rawOutput: string): ParsedUsageLine[] {
 
     const percentUsed = parseFloat(percentMatch[1]!);
 
-    // Determine the label
-    let label = "Session";
+    // Determine the label.
+    // Order matters: model-specific markers (Opus/Sonnet) win over the
+    // generic "week" check, otherwise a "Current week (Opus only)" segment
+    // would be mislabelled as "Weekly" and collide with the all-models row.
     const lowerSegment = segment.toLowerCase();
-    if (lowerSegment.includes("week") && lowerSegment.includes("all")) {
-      label = "Weekly";
+    let label: string;
+    if (lowerSegment.includes("opus")) {
+      label = "Weekly Opus";
     } else if (lowerSegment.includes("sonnet")) {
-      label = "Sonnet";
-    } else if (lowerSegment.includes("opus")) {
-      label = "Opus";
+      label = "Weekly Sonnet";
+    } else if (lowerSegment.includes("week")) {
+      label = "Weekly";
     } else if (lowerSegment.includes("session")) {
       label = "Session";
+    } else {
+      label = "Unknown";
     }
 
     const resetsMatch = segment.match(RESETS_RE);
@@ -54,7 +59,20 @@ function parseUsageLines(rawOutput: string): ParsedUsageLine[] {
     results.push({ label, percentUsed, resetsText });
   }
 
-  return results;
+  return dedupeLabels(results);
+}
+
+// Safety net: if the upstream output ever produces two rows with the same
+// label (e.g. two "Weekly" entries because the model marker was missing),
+// suffix the duplicates so the UI doesn't show identical names.
+function dedupeLabels(lines: ParsedUsageLine[]): ParsedUsageLine[] {
+  const seen = new Map<string, number>();
+  return lines.map((line) => {
+    const count = seen.get(line.label) ?? 0;
+    seen.set(line.label, count + 1);
+    if (count === 0) return line;
+    return { ...line, label: `${line.label} (${count + 1})` };
+  });
 }
 
 // ── Reset text → ms ─────────────────────────────────────────────────

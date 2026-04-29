@@ -17,6 +17,7 @@ import {
   ProjectSearchEntriesError,
   ProjectWriteFileError,
   OrchestrationReplayEventsError,
+  SessionDiscoveryError,
   SkillsListError,
   SkillsRefreshError,
   ThreadId,
@@ -42,6 +43,7 @@ import {
   observeRpcStreamEffect,
 } from "./observability/RpcInstrumentation";
 import { ProviderRegistry } from "./provider/Services/ProviderRegistry";
+import { SessionDiscoveryService } from "./provider/SessionDiscovery/SessionDiscoveryService";
 import { ServerLifecycleEvents } from "./serverLifecycleEvents";
 import { ServerRuntimeStartup } from "./serverRuntimeStartup";
 import { ServerSettingsService } from "./serverSettings";
@@ -73,6 +75,7 @@ const WsRpcLayer = WsRpcGroup.toLayer(
     const projectSetupScriptRunner = yield* ProjectSetupScriptRunner;
     const skillDiscovery = yield* SkillDiscovery;
     const providerAccountStats = yield* ProviderAccountStatsService;
+    const sessionDiscovery = yield* SessionDiscoveryService;
 
     const serverCommandId = (tag: string) =>
       CommandId.makeUnsafe(`server:${tag}:${crypto.randomUUID()}`);
@@ -535,6 +538,27 @@ const WsRpcLayer = WsRpcGroup.toLayer(
             ),
           ),
           { "rpc.aggregate": "skills" },
+        ),
+      [WS_METHODS.providerListImportableSessions]: (_input) =>
+        observeRpcEffect(
+          WS_METHODS.providerListImportableSessions,
+          sessionDiscovery.listImportable().pipe(
+            Effect.map((sessions) => ({ sessions })),
+            Effect.mapError(
+              (cause) =>
+                new SessionDiscoveryError({
+                  message: `Failed to list importable sessions: ${String(cause)}`,
+                  cause,
+                }),
+            ),
+          ),
+          { "rpc.aggregate": "provider" },
+        ),
+      [WS_METHODS.threadImportExternalSession]: (input) =>
+        observeRpcEffect(
+          WS_METHODS.threadImportExternalSession,
+          sessionDiscovery.importSession(input),
+          { "rpc.aggregate": "provider" },
         ),
       [WS_METHODS.projectsSearchEntries]: (input) =>
         observeRpcEffect(

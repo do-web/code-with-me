@@ -83,6 +83,14 @@ import {
 } from "./server";
 import { ServerSettings, ServerSettingsError, ServerSettingsPatch } from "./settings";
 import { ProviderAccountStatsEvent } from "./providerAccountStats";
+import {
+  ImportExternalSessionInput,
+  ImportExternalSessionResult,
+  ListImportableSessionsInput,
+  ListImportableSessionsResult,
+  SessionDiscoveryError,
+  SessionImportError,
+} from "./sessionImport";
 import { SkillsListError, SkillsListResult, SkillsRefreshError } from "./skill";
 
 export const WS_METHODS = {
@@ -133,6 +141,10 @@ export const WS_METHODS = {
   skillsList: "skills.list",
   skillsRefresh: "skills.refresh",
 
+  // External session import
+  providerListImportableSessions: "provider.listImportableSessions",
+  threadImportExternalSession: "thread.importExternalSession",
+
   // Streaming subscriptions
   subscribeOrchestrationDomainEvents: "subscribeOrchestrationDomainEvents",
   subscribeTerminalEvents: "subscribeTerminalEvents",
@@ -180,6 +192,21 @@ export const WsSkillsRefreshRpc = Rpc.make(WS_METHODS.skillsRefresh, {
   payload: Schema.Struct({}),
   success: SkillsListResult,
   error: SkillsRefreshError,
+});
+
+export const WsProviderListImportableSessionsRpc = Rpc.make(
+  WS_METHODS.providerListImportableSessions,
+  {
+    payload: ListImportableSessionsInput,
+    success: ListImportableSessionsResult,
+    error: SessionDiscoveryError,
+  },
+);
+
+export const WsThreadImportExternalSessionRpc = Rpc.make(WS_METHODS.threadImportExternalSession, {
+  payload: ImportExternalSessionInput,
+  success: ImportExternalSessionResult,
+  error: SessionImportError,
 });
 
 export const WsProjectsSearchEntriesRpc = Rpc.make(WS_METHODS.projectsSearchEntries, {
@@ -405,6 +432,8 @@ export const WsRpcGroup = RpcGroup.make(
   WsServerUpdateSettingsRpc,
   WsSkillsListRpc,
   WsSkillsRefreshRpc,
+  WsProviderListImportableSessionsRpc,
+  WsThreadImportExternalSessionRpc,
   WsProjectsSearchEntriesRpc,
   WsProjectsWriteFileRpc,
   WsProjectsReadPackageScriptsRpc,

@@ -98,6 +98,10 @@ export interface WsRpcClient {
     readonly list: RpcUnaryNoArgMethod<typeof WS_METHODS.skillsList>;
     readonly refresh: RpcUnaryNoArgMethod<typeof WS_METHODS.skillsRefresh>;
   };
+  readonly sessionImport: {
+    readonly listImportable: RpcUnaryNoArgMethod<typeof WS_METHODS.providerListImportableSessions>;
+    readonly importExternal: RpcUnaryMethod<typeof WS_METHODS.threadImportExternalSession>;
+  };
   readonly orchestration: {
     readonly getSnapshot: RpcUnaryNoArgMethod<typeof ORCHESTRATION_WS_METHODS.getSnapshot>;
     readonly dispatchCommand: RpcUnaryMethod<typeof ORCHESTRATION_WS_METHODS.dispatchCommand>;
@@ -218,6 +222,12 @@ export function createWsRpcClient(transport = new WsTransport()): WsRpcClient {
     skills: {
       list: () => transport.request((client) => client[WS_METHODS.skillsList]({})),
       refresh: () => transport.request((client) => client[WS_METHODS.skillsRefresh]({})),
+    },
+    sessionImport: {
+      listImportable: () =>
+        transport.request((client) => client[WS_METHODS.providerListImportableSessions]({})),
+      importExternal: (input) =>
+        transport.request((client) => client[WS_METHODS.threadImportExternalSession](input)),
     },
     orchestration: {
       getSnapshot: () =>

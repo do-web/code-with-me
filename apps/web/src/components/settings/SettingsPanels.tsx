@@ -36,6 +36,7 @@ import { isElectron } from "../../env";
 import { useTheme } from "../../hooks/useTheme";
 import { useSettings, useUpdateSettings } from "../../hooks/useSettings";
 import { useThreadActions } from "../../hooks/useThreadActions";
+import { ensureNotificationPermission } from "../../lib/turnCompletionNotification";
 import {
   setDesktopUpdateStateQueryData,
   useDesktopUpdateState,
@@ -485,6 +486,10 @@ export function useSettingsRestore(onRestored?: () => void) {
       ...(settings.confirmThreadDelete !== DEFAULT_UNIFIED_SETTINGS.confirmThreadDelete
         ? ["Delete confirmation"]
         : []),
+      ...(settings.turnCompletionNotifications !==
+      DEFAULT_UNIFIED_SETTINGS.turnCompletionNotifications
+        ? ["Completion notifications"]
+        : []),
       ...(isGitWritingModelDirty ? ["Git writing model"] : []),
       ...(areProviderSettingsDirty ? ["Providers"] : []),
     ],
@@ -497,6 +502,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.diffWordWrap,
       settings.enableAssistantStreaming,
       settings.timestampFormat,
+      settings.turnCompletionNotifications,
       theme,
     ],
   );
@@ -1007,6 +1013,46 @@ export function GeneralSettingsPanel() {
                 updateSettings({ confirmThreadDelete: Boolean(checked) })
               }
               aria-label="Confirm thread deletion"
+            />
+          }
+        />
+
+        <SettingsRow
+          title="Completion notifications"
+          description="Play a sound and show a system notification when a turn finishes in the background."
+          resetAction={
+            settings.turnCompletionNotifications !==
+            DEFAULT_UNIFIED_SETTINGS.turnCompletionNotifications ? (
+              <SettingResetButton
+                label="completion notifications"
+                onClick={() =>
+                  updateSettings({
+                    turnCompletionNotifications:
+                      DEFAULT_UNIFIED_SETTINGS.turnCompletionNotifications,
+                  })
+                }
+              />
+            ) : null
+          }
+          control={
+            <Switch
+              checked={settings.turnCompletionNotifications}
+              onCheckedChange={(checked) => {
+                const next = Boolean(checked);
+                updateSettings({ turnCompletionNotifications: next });
+                if (!next) return;
+                void ensureNotificationPermission().then((permission) => {
+                  if (permission === "denied") {
+                    toastManager.add({
+                      type: "warning",
+                      title: "Notifications blocked",
+                      description:
+                        "System notifications are blocked by the browser. Only the sound will play.",
+                    });
+                  }
+                });
+              }}
+              aria-label="Turn completion notifications"
             />
           }
         />

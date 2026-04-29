@@ -9,6 +9,7 @@ import {
   type ErrorComponentProps,
   useNavigate,
   useLocation,
+  useParams,
 } from "@tanstack/react-router";
 import { useEffect, useEffectEvent, useRef } from "react";
 import { QueryClient, useQueryClient } from "@tanstack/react-query";
@@ -36,7 +37,12 @@ import {
 import { useStore } from "../store";
 import { useUiStateStore } from "../uiStateStore";
 import { useTerminalStateStore } from "../terminalStateStore";
-import { migrateLocalSettingsToServer } from "../hooks/useSettings";
+import { migrateLocalSettingsToServer, useSettings } from "../hooks/useSettings";
+import {
+  playCompletionSound,
+  shouldSuppressNotification,
+  showCompletionNotification,
+} from "../lib/turnCompletionNotification";
 import { providerQueryKeys } from "../lib/providerReactQuery";
 import { projectQueryKeys } from "../lib/projectReactQuery";
 import { collectActiveTerminalProjectIds } from "../lib/terminalStateCleanup";
@@ -213,6 +219,39 @@ function EventRouter() {
   const navigate = useNavigate();
   const pathname = useLocation({ select: (loc) => loc.pathname });
   const readPathname = useEffectEvent(() => pathname);
+  const routeThreadId = useParams({
+    strict: false,
+    select: (params) => params.threadId ?? null,
+  });
+  const turnCompletionNotifications = useSettings().turnCompletionNotifications;
+  const notifyTurnCompletionsFromBatch = useEffectEvent(
+    (events: ReadonlyArray<OrchestrationEvent>) => {
+      if (!turnCompletionNotifications) return;
+      if (typeof document === "undefined") return;
+      for (const event of events) {
+        if (event.type !== "thread.turn-completed") continue;
+        if (
+          shouldSuppressNotification({
+            visibilityState: document.visibilityState,
+            hasFocus: document.hasFocus(),
+            activeThreadId: routeThreadId,
+            eventThreadId: event.payload.threadId,
+          })
+        ) {
+          continue;
+        }
+        const thread = useStore
+          .getState()
+          .threads.find((entry) => entry.id === event.payload.threadId);
+        playCompletionSound(event.payload.status);
+        showCompletionNotification({
+          threadId: event.payload.threadId,
+          threadTitle: thread?.title ?? null,
+          status: event.payload.status,
+        });
+      }
+    },
+  );
   const handledBootstrapThreadIdRef = useRef<string | null>(null);
   const seenServerConfigUpdateIdRef = useRef(getServerConfigUpdatedNotification()?.id ?? 0);
   const disposedRef = useRef(false);
@@ -402,6 +441,7 @@ function EventRouter() {
         draftStore.clearDraftThread(threadId);
         clearThreadUi(threadId);
       }
+      notifyTurnCompletionsFromBatch(nextEvents);
     };
     const flushPendingDomainEvents = () => {
       flushPendingDomainEventsScheduled = false;

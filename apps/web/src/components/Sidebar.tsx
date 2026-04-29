@@ -2,6 +2,7 @@ import {
   ArchiveIcon,
   ArrowUpDownIcon,
   ChevronRightIcon,
+  DownloadIcon,
   FoldVerticalIcon,
   FolderIcon,
   FolderOpenIcon,
@@ -13,6 +14,7 @@ import {
   TriangleAlertIcon,
   UnfoldVerticalIcon,
 } from "lucide-react";
+import { ImportSessionsDialog } from "./ImportSessionsDialog";
 import { ProjectFavicon } from "./ProjectFavicon";
 import { Skeleton } from "~/components/ui/skeleton";
 import { autoAnimate } from "@formkit/auto-animate";
@@ -717,6 +719,7 @@ export default function Sidebar() {
   const [isPickingFolder, setIsPickingFolder] = useState(false);
   const [isAddingProject, setIsAddingProject] = useState(false);
   const [addProjectError, setAddProjectError] = useState<string | null>(null);
+  const [importSessionsDialogOpen, setImportSessionsDialogOpen] = useState(false);
   const addProjectInputRef = useRef<HTMLInputElement | null>(null);
   const [renamingThreadId, setRenamingThreadId] = useState<ThreadId | null>(null);
   const [renamingTitle, setRenamingTitle] = useState("");
@@ -2200,6 +2203,21 @@ export default function Sidebar() {
                       render={
                         <button
                           type="button"
+                          aria-label="Import external session"
+                          className="inline-flex size-5 cursor-pointer items-center justify-center rounded-md text-muted-foreground/60 transition-colors hover:bg-accent hover:text-foreground"
+                          onClick={() => setImportSessionsDialogOpen(true)}
+                        />
+                      }
+                    >
+                      <DownloadIcon className="size-3.5" />
+                    </TooltipTrigger>
+                    <TooltipPopup side="right">Import external session</TooltipPopup>
+                  </Tooltip>
+                  <Tooltip>
+                    <TooltipTrigger
+                      render={
+                        <button
+                          type="button"
                           aria-label={
                             shouldShowProjectPathEntry ? "Cancel add project" : "Add project"
                           }
@@ -2350,6 +2368,10 @@ export default function Sidebar() {
           </SidebarFooter>
         </div>
       )}
+      <ImportSessionsDialog
+        open={importSessionsDialogOpen}
+        onOpenChange={setImportSessionsDialogOpen}
+      />
     </>
   );
 }

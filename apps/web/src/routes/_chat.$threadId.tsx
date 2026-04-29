@@ -9,7 +9,6 @@ import { FileExplorerPanel } from "../components/FileExplorerPanel";
 import { DiffWorkerPoolProvider } from "../components/DiffWorkerPoolProvider";
 import { useFileExplorerStore } from "../fileExplorerStore";
 import { useThreadById, useProjectById } from "../storeSelectors";
-import { cn } from "~/lib/utils";
 import {
   DiffPanelHeaderSkeleton,
   DiffPanelLoadingState,
@@ -357,11 +356,14 @@ function ChatThreadRouteView() {
   const mainContent = (
     <SidebarInset className="h-dvh min-h-0 overflow-hidden overscroll-y-none bg-background text-foreground">
       {hasOpenFiles && <EditorTabBar />}
-      {/* ChatView stays mounted – CSS hidden preserves scroll, drafts, streams */}
-      <div className={cn("flex min-h-0 flex-1 flex-col", activeFilePath && "hidden")}>
-        <ChatView threadId={threadId} />
-      </div>
-      {activeFilePath && <EditorView relativePath={activeFilePath} />}
+      {/* ChatView stays mounted – it owns the terminal drawer and keeps scroll,
+          drafts, and in-flight streams warm. When a file is open, the EditorView
+          is passed as a slot so it replaces the chat column but the terminal
+          drawer at the bottom remains visible. */}
+      <ChatView
+        threadId={threadId}
+        editorSlot={activeFilePath ? <EditorView relativePath={activeFilePath} /> : undefined}
+      />
     </SidebarInset>
   );
 

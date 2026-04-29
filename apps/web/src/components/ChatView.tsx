@@ -26,7 +26,15 @@ import {
 import { applyClaudePromptEffortPrefix, normalizeModelSlug } from "@codewithme/shared/model";
 import { projectScriptCwd, projectScriptRuntimeEnv } from "@codewithme/shared/projectScripts";
 import { truncate } from "@codewithme/shared/String";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import {
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useDebouncedValue } from "@tanstack/react-pacer";
 import { useNavigate, useSearch } from "@tanstack/react-router";
@@ -406,6 +414,13 @@ const terminalContextIdListsEqual = (
 
 interface ChatViewProps {
   threadId: ThreadId;
+  /**
+   * When provided, replaces the chat column in the main content area while
+   * keeping ChatView (header, banners, terminal drawer) mounted and visible.
+   * The chat column stays mounted but hidden so scroll position, drafts, and
+   * in-flight streams are preserved.
+   */
+  editorSlot?: ReactNode;
 }
 
 interface TerminalLaunchContext {
@@ -669,7 +684,7 @@ function PersistentThreadTerminalDrawer({
   );
 }
 
-export default function ChatView({ threadId }: ChatViewProps) {
+export default function ChatView({ threadId, editorSlot }: ChatViewProps) {
   const serverThread = useThreadById(threadId);
   const setStoreThreadError = useStore((store) => store.setError);
   const markThreadVisited = useUiStateStore((store) => store.markThreadVisited);
@@ -2627,17 +2642,20 @@ export default function ChatView({ threadId }: ChatViewProps) {
 
   useEffect(() => {
     if (!activeThread?.id) return;
-    if (activeThread.messages.length === 0) {
+    if (optimisticUserMessages.length === 0) {
       return;
     }
     const serverIds = new Set(activeThread.messages.map((message) => message.id));
-    const removedMessages = optimisticUserMessages.filter((message) => serverIds.has(message.id));
+    const queueIds = new Set(activeThread.queueItems.map((item) => item.id));
+    const removedMessages = optimisticUserMessages.filter(
+      (message) => serverIds.has(message.id) || queueIds.has(message.id),
+    );
     if (removedMessages.length === 0) {
       return;
     }
     const timer = window.setTimeout(() => {
       setOptimisticUserMessages((existing) =>
-        existing.filter((message) => !serverIds.has(message.id)),
+        existing.filter((message) => !serverIds.has(message.id) && !queueIds.has(message.id)),
       );
     }, 0);
     for (const removedMessage of removedMessages) {
@@ -2651,7 +2669,13 @@ export default function ChatView({ threadId }: ChatViewProps) {
     return () => {
       window.clearTimeout(timer);
     };
-  }, [activeThread?.id, activeThread?.messages, handoffAttachmentPreviews, optimisticUserMessages]);
+  }, [
+    activeThread?.id,
+    activeThread?.messages,
+    activeThread?.queueItems,
+    handoffAttachmentPreviews,
+    optimisticUserMessages,
+  ]);
 
   useEffect(() => {
     promptRef.current = prompt;
@@ -4546,8 +4570,9 @@ export default function ChatView({ threadId }: ChatViewProps) {
       />
       {/* Main content area with optional plan sidebar */}
       <div className="flex min-h-0 min-w-0 flex-1">
-        {/* Chat column */}
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+        {/* Chat column – stays mounted (hidden via CSS) when an editor slot is
+            active so scroll position, drafts, and in-flight streams survive */}
+        <div className={cn("flex min-h-0 min-w-0 flex-1 flex-col", editorSlot && "hidden")}>
           {/* Messages Wrapper */}
           <div className="relative flex min-h-0 flex-1 flex-col">
             {/* Search bar */}
@@ -5107,6 +5132,12 @@ export default function ChatView({ threadId }: ChatViewProps) {
           ) : null}
         </div>
         {/* end chat column */}
+
+        {/* Editor slot replaces the chat column visually while the chat column
+            stays mounted above. Wrapping div mirrors chat-column flex sizing. */}
+        {editorSlot ? (
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col">{editorSlot}</div>
+        ) : null}
 
         {/* Plan sidebar */}
         {planSidebarOpen ? (

@@ -1,181 +1,122 @@
-# Document-Attachments (PDF/DOCX/etc.) im Composer
+# Turn-Completion Notifications (Push + Sound)
 
 ## Ziel
 
-User kann PDF / Word / beliebige unterstützte Binär-Dokumente per Drag&Drop (oder Paste/File-Picker) in den Chat-Composer ziehen. Der Server speichert die Datei im `attachmentsDir` (persistent, identisch zum Images-Flow). Beim Turn-Dispatch wird ein Hinweis mit dem absoluten Dateipfad **in den User-Prompt injiziert** (provider-agnostisch), damit der jeweilige Coding-Agent die Datei mit seinen eigenen Tools (`cat`, Read, `pdftotext`, …) öffnen kann.
+Nach Abschluss eines Turns (Prozess) in CodeWithMe soll eine Push-Notification mit Sound auftauchen, Titel = Thread-Name. Standardmäßig aktiv, in den Settings an/aus schaltbar.
 
 ## Architektur-Entscheidungen (nach Plan-Review)
 
-1. **Prompt-Injection im `ProviderCommandReactor.sendTurnForThread`** (nicht im CodexAdapter). Provider-agnostisch; Claude/Gemini-Adapter filtern `attachment.type !== "image"` eh schon heraus → automatisch Cross-Provider-kompatibel.
-2. **Separater Attachment-Typ `"document"`** neben `"image"`; Union in `ChatAttachment`.
-3. **Server-seitige Persistenz** in `attachmentsDir` wie bei Images. `Normalizer.ts` macht das zentral.
-4. **10 MB Document-Limit**, nicht 25 MB — der Bun-WS-Server hat `maxPayloadLength` Default 16 MB, Base64-Overhead ≈ 33 %, damit passt eine 10-MB-PDF sicher in eine einzelne RPC-Message. Größere Uploads sind Follow-up (dedizierter HTTP-Endpoint).
-5. **Magic-Byte-Sniffing** im Normalizer gegen Mime-Spoofing, weil `danger-full-access`-Sandbox default ist.
-6. **Separates `documents[]`-Array** im composerDraftStore (nicht Union), weil Image-Laufzeitfelder (`previewUrl`, Blob-URL-Revocation) nicht auf Docs passen.
-7. **Store-Migration per `withDecodingDefault(() => [])`** statt version-bump.
-8. **Cleanup**: Wenn der Dispatch nach File-Write scheitert, bereits geschriebene Dateien löschen. (Bestehender Bug bei Images wird mitgefixt.)
-9. **Full-access only**: Dokumente setzen `runtimeMode = "full-access"` voraus. Im `approval-required`-Mode: UI deaktiviert Document-Upload mit Tooltip. Lazy-Copy-to-Workspace ist Follow-up.
+1. **Client-only Setting**: Benachrichtigungspräferenz ist per-Gerät (Notification-Permission ist ohnehin pro Origin). Feld `turnCompletionNotifications: Schema.Boolean` in `ClientSettingsSchema` (Default `true`). Konvention analog zu `confirmThreadArchive` (kein Enabled-Suffix).
+2. **Wo triggert der Listener?** In den **bestehenden** `applyEventBatch`-Flow in `apps/web/src/routes/__root.tsx` einklinken (nach `applyOrchestrationEvents`). Kein paralleles `onDomainEvent`-Abo — das würde beim Replay/Recovery doppelte Notifications feuern (vom Review-Agent identifiziert).
+3. **Sound**: Web Audio API (Oscillator, zwei kurze Sinus-Töne) als **MVP**. Kein Asset, funktioniert überall. Späteres Upgrade auf echtes Audio-Asset ist Follow-up. Try/catch um AudioContext.
+4. **Notification-API**: Standard `Notification` (Browser). Permission beim Einschalten des Toggles lazy anfordern. Wenn denied → nur Sound als Fallback. Tag `threadId` setzen, damit mehrere Events pro Thread die vorherige Notification ersetzen statt stapeln.
+5. **Skip-Bedingung** (abgeschwächt): Notification+Sound nur skippen, wenn `document.visibilityState === "visible"` UND `document.hasFocus()` UND aktuelle Route-Thread-ID === event.threadId. User-Intent: Bescheid bekommen, wenn man nicht direkt hinschaut.
+6. **Aktive Thread-ID**: aus TanStack-Router lesen (`useLocation`/`useParams`), **nicht** aus `threadSelectionStore` (das ist Multi-Select für Sidebar). In einem Ref spiegeln, damit der Listener nicht re-subscribed werden muss.
+7. **Enabled-Flag in Ref spiegeln**: damit Toggle keinen Re-Mount des Listeners triggert.
+8. **Thread-Titel-Fallback**: Wenn `useStore.getState().threads.find(...)` `undefined` liefert (Race mit frischem Thread), Fallback-Titel `"Turn completed"`.
+9. **Dedup**: Nicht nötig, weil wir in `applyEventBatch` nur neue Events (nach `recovery.markEventBatchApplied`) sehen. Das ist per Konstruktion dedupliziert.
 
-## Ist-Zustand
+## Umsetzungsschritte
 
-- Images: `UploadChatImageAttachment` → `Normalizer.ts:49-112` dekodiert Base64, schreibt Datei, produziert `ChatImageAttachment` → `ProviderCommandReactor.sendTurnForThread` reicht sie via `providerService.sendTurn` weiter → `CodexAdapter.resolveAttachment` liest sie zurück, re-encoded zu Data-URL und übergibt an Codex-native `attachments`-Feld.
-- Claude/Gemini-Adapter: filtern `attachment.type !== "image"` (`ClaudeAdapter.ts:570-572`), Dokumente werden heute stillschweigend verworfen.
-- Web: `composerFiles` im `ChatView.tsx:2904-2954` akzeptiert beliebige Nicht-Image-Files und macht `file.text()` → Plaintext-Prefix vor den Prompt. PDFs liefern Binär-Garbage.
-- Default runtime mode: `full-access` → `danger-full-access`-Sandbox → Codex liest absolute Pfade überall.
+### Step 1 – Contract (`packages/contracts/src/settings.ts`)
 
-## Schritte
+- [x] Feld `turnCompletionNotifications: Schema.Boolean.pipe(Schema.withDecodingDefault(() => true))` in `ClientSettingsSchema` ergänzen.
 
-### 1. Contracts (`packages/contracts/src/orchestration.ts`)
+### Step 2 – Notification-Utility (`apps/web/src/lib/turnCompletionNotification.ts`, neu)
 
-- [ ] Limits ergänzen:
-  - `PROVIDER_SEND_TURN_MAX_DOCUMENT_BYTES = 10 * 1024 * 1024` (10 MB)
-  - `PROVIDER_SEND_TURN_MAX_DOCUMENT_DATA_URL_CHARS = 14_000_000` (passt zum Image-Cap)
-- [ ] `CHAT_DOCUMENT_MIME_PATTERN` (RegExp) exportieren. Whitelist (Anker `^…$`): `application/pdf`, `application/msword`, `application/vnd.openxmlformats-officedocument.(wordprocessingml|spreadsheetml|presentationml).*`, `application/vnd.ms-(excel|powerpoint)`, `application/rtf`, `application/vnd.oasis.opendocument.*`, `text/(plain|csv|tab-separated-values|markdown|x-log)`.
-- [ ] `ChatDocumentAttachment` (persistiert): `type: "document"`, `id: ChatAttachmentId`, `name` (max 255), `mimeType` (pattern-gecheckt, max 150), `sizeBytes` (≤ DOCUMENT-limit).
-- [ ] `UploadChatDocumentAttachment` (transport): analog + `dataUrl`.
-- [ ] `ChatAttachment = Union([ChatImageAttachment, ChatDocumentAttachment])` und `UploadChatAttachment` analog.
-- [ ] Re-Validieren: `OrchestrationMessage.attachments` (Zeile 170) nimmt die Union → bleibt kompatibel.
+- [x] `ensureNotificationPermission(): Promise<NotificationPermission>` — fragt Permission bei `"default"` an, gibt aktuelle zurück. No-op wenn `Notification`-API nicht verfügbar.
+- [x] `playCompletionSound(status: ThreadTurnCompletionStatus): void` — Web Audio. Success = aufsteigende 2 Töne (660 → 880 Hz), sonst abfallend (660 → 440 Hz). Lazy-initialisierter AudioContext, try/catch um alles.
+- [x] **Pure-Function** `buildNotificationContent(status, threadTitle): { title: string; body: string }` — testbar isoliert. Title = `threadTitle`, Body = status-abhängiger Text: `"Turn completed"`, `"Turn failed"`, `"Turn interrupted"`, `"Turn cancelled"`.
+- [x] **Pure-Function** `shouldSuppressNotification(params: { visibilityState: DocumentVisibilityState; hasFocus: boolean; activeThreadId: string | null; eventThreadId: string }): boolean` — testbar isoliert. `true` wenn alle drei Skip-Bedingungen erfüllt.
+- [x] `showCompletionNotification({ threadTitle, status, threadId }): void` — ruft `buildNotificationContent`, setzt `new Notification(title, { body, tag: threadId })` wenn `Notification.permission === "granted"`. Alle Fehler verschlucken.
 
-### 2. Server MIME helper
+### Step 3 – Integration in `applyEventBatch` (`apps/web/src/routes/__root.tsx`)
 
-- [ ] `apps/server/src/attachmentMime.ts` **neu** anlegen, konsolidiert image+document:
-  - `IMAGE_EXTENSION_BY_MIME_TYPE` (aus `imageMime.ts` übernehmen)
-  - `DOCUMENT_EXTENSION_BY_MIME_TYPE` (neu)
-  - `SAFE_IMAGE_FILE_EXTENSIONS` + `SAFE_DOCUMENT_FILE_EXTENSIONS`
-  - `inferImageExtension`, `inferDocumentExtension`
-  - `parseBase64DataUrl` (MIME-agnostisch, bleibt zentral)
-  - `sniffDocumentKind(bytes): "pdf" | "office-zip" | "text" | null` — Magic-Byte-Sniffing
-    - PDF: startsWith `%PDF-`
-    - OOXML/ZIP-basiert: startsWith `PK\x03\x04`
-    - Legacy Office: `D0 CF 11 E0` (CFB-Header)
-    - RTF: `{\rtf`
-    - Plain Text: keine NUL-Bytes in ersten 4 KB
-- [ ] Alte `imageMime.ts` entfernen; alle Importe auf `attachmentMime.ts` umstellen (Grep-Ziele: `imageMime` → 3 Fundstellen max).
-
-### 3. Attachment Store (`apps/server/src/attachmentStore.ts`)
-
-- [ ] `ATTACHMENT_FILENAME_EXTENSIONS` um `SAFE_DOCUMENT_FILE_EXTENSIONS` erweitern (bleibt ein Set, keine separaten Dirs).
-- [ ] `attachmentRelativePath`-Switch um `case "document"` (nutzt `inferDocumentExtension`).
-
-### 4. Normalizer (`apps/server/src/orchestration/Normalizer.ts`)
-
-Zentrale Erweiterung, Zeilen 49-112 ersetzen:
-
-- [ ] Vorab: `persistAttachmentBytes(bytes, attachment)`-Helper extrahieren (gemeinsame `createAttachmentId` + `resolveAttachmentPath` + `makeDirectory` + `writeFile`-Logik).
-- [ ] Switch auf `UploadChatAttachment`-Union:
-  - **Image-Branch** (unverändert, nur gerefactored): `parseBase64DataUrl` → MIME startsWith `image/` → size-check gegen `PROVIDER_SEND_TURN_MAX_IMAGE_BYTES` → `persistAttachmentBytes`.
-  - **Document-Branch** (neu):
-    - `parseBase64DataUrl` → MIME gegen `CHAT_DOCUMENT_MIME_PATTERN`
-    - Size-Check gegen `PROVIDER_SEND_TURN_MAX_DOCUMENT_BYTES`
-    - **Magic-Byte-Sniffing** (`sniffDocumentKind(bytes)`): muss zur MIME-Kategorie passen (PDF-MIME → `"pdf"`, Office-OOXML → `"office-zip"`, RTF → `"text"`-oder-`"office-zip"` tolerant, Plaintext-MIME → `"text"`). Mismatch ⇒ Error.
-    - `persistAttachmentBytes`
-- [ ] **Cleanup-Pfad**: In einem `Effect.acquireRelease` / `Effect.onError`-Wrapper: Wenn ein späteres Attachment fehlschlägt, bereits geschriebene Dateien dieses Turns löschen. Betrifft Images retroaktiv mit.
-
-### 5. Prompt-Injection (neu: `apps/server/src/orchestration/promptDocumentReferences.ts`)
-
-- [ ] Reine Text-Transformation, keine I/O:
+- [x] In `EventRouter`: neuer Ref `turnNotificationsEnabledRef = useRef(settings.turnCompletionNotifications)`. Sync per `useEffect`.
+- [x] Aktive-Thread-ID als Ref: `activeThreadIdRef`, gefüllt aus `useParams({ strict: false, select: p => p.threadId ?? null })` (oder via `useLocation`, wenn `useParams` in Root-Route nicht zuverlässig greift) + `useEffect`.
+- [x] In `applyEventBatch` (Zeile ~360): nach `applyOrchestrationEvents(uiEvents)` zusätzlich:
   ```ts
-  appendDocumentReferencesToPrompt(input: {
-    prompt: string | undefined;
-    attachments: ReadonlyArray<ChatAttachment>;
-    attachmentsDir: string;
-  }): string
+  for (const event of nextEvents) {
+    if (event.type !== "thread.turn-completed") continue;
+    if (!turnNotificationsEnabledRef.current) continue;
+    if (
+      shouldSuppressNotification({
+        visibilityState: document.visibilityState,
+        hasFocus: document.hasFocus(),
+        activeThreadId: activeThreadIdRef.current,
+        eventThreadId: event.payload.threadId,
+      })
+    )
+      continue;
+    const thread = useStore.getState().threads.find((t) => t.id === event.payload.threadId);
+    const threadTitle = thread?.title ?? "Turn completed";
+    playCompletionSound(event.payload.status);
+    showCompletionNotification({
+      threadTitle,
+      status: event.payload.status,
+      threadId: event.payload.threadId,
+    });
+  }
   ```
-- [ ] Nur `attachment.type === "document"` filtern, via `resolveAttachmentPath` zu absolutem Pfad auflösen.
-- [ ] Format:
+- [x] Keine zusätzliche Subscription; keine neuen Dependencies im `useEffect`-Array (Refs handhaben Updates).
 
-  ```
-  <original prompt>
+### Step 4 – Settings UI (`apps/web/src/components/settings/SettingsPanels.tsx`)
 
-  [Attached documents for this turn — read them with your tools:]
-  - <name> (<mimeType>, <sizeHuman>) → <absoluter pfad>
-  ```
+- [x] Neuer `SettingsRow` "Completion notifications" in `GeneralSettingsPanel` zwischen "Assistant output" und "New threads" (sinnvolle Nachbarschaft).
+- [x] Switch bindet an `settings.turnCompletionNotifications`, `onCheckedChange`:
+  - Wenn `true`: `updateSettings({ turnCompletionNotifications: true })` **und** `void ensureNotificationPermission()`. Wenn Permission danach `denied` ist, ein `toastManager.add({ type: "warning", title: "Notifications blocked", description: "Turn completions will still play a sound." })`.
+  - Wenn `false`: `updateSettings({ turnCompletionNotifications: false })`.
+- [x] Reset-Button wenn `settings.turnCompletionNotifications !== DEFAULT_UNIFIED_SETTINGS.turnCompletionNotifications`.
+- [x] `useSettingsRestore.changedSettingLabels`: neuen Eintrag `...(settings.turnCompletionNotifications !== DEFAULT_UNIFIED_SETTINGS.turnCompletionNotifications ? ["Completion notifications"] : [])`.
 
-- [ ] Falls prompt leer und >0 Dokumente: `"Please read the attached documents:"` als seed.
-- [ ] Falls 0 Dokumente: Rückgabe unverändert (`prompt ?? ""`).
+### Step 5 – Unit-Tests (`apps/web/src/lib/turnCompletionNotification.test.ts`, neu)
 
-### 6. ProviderCommandReactor-Integration (`apps/server/src/orchestration/Layers/ProviderCommandReactor.ts:362-412`)
+- [x] Vitest-Suite, führt via `bun run test`:
+  - `buildNotificationContent` für alle 4 Status → korrekter Titel + Body.
+  - `shouldSuppressNotification`: Tabelle aus Visibility × Focus × ThreadMatch → Skip ja/nein.
+  - Thread-Title-Fallback: `buildNotificationContent("completed", "")` → sauberer String.
 
-- [ ] In `sendTurnForThread` **vor** `providerService.sendTurn`:
-  ```ts
-  const finalInput = appendDocumentReferencesToPrompt({
-    prompt: normalizedInput,
-    attachments: normalizedAttachments,
-    attachmentsDir: serverConfig.attachmentsDir,
-  });
-  ```
-- [ ] `serverConfig` (`ServerConfig`) als Dependency bereits im Reactor verfügbar? Falls nicht: im `Effect.gen`-Setup injecten (analog zu `providerService`).
-- [ ] `providerService.sendTurn` nimmt `finalInput` statt `normalizedInput`.
+### Step 6 – Validierung
 
-### 7. CodexAdapter (`apps/server/src/provider/Layers/CodexAdapter.ts`)
-
-- [ ] `resolveAttachment` um Early-Return ergänzen: `if (attachment.type === "document") return null`.
-- [ ] `sendTurn` (Zeile 1495): `Effect.forEach` mit `Option.filter` / nachgelagertem `codexAttachments.filter(Boolean)`, damit nur Images an Codex gehen.
-- [ ] **Keine** Prompt-Manipulation hier; alles via Reactor erledigt.
-
-### 8. Claude + Gemini Adapter
-
-- [ ] Keine Code-Änderung nötig: beide filtern bereits `attachment.type !== "image"` (ClaudeAdapter.ts:570-572, analog Gemini). Dokumente kommen über den Prompt-Text an.
-- [ ] **Verifikation**: Manueller Smoke-Test in allen drei Providern.
-
-### 9. Web composerDraftStore (`apps/web/src/composerDraftStore.ts`)
-
-- [ ] `PersistedComposerDocumentAttachment` Schema (id/name/mimeType/sizeBytes/dataUrl).
-- [ ] `ComposerDocumentAttachment` Interface (+ `file: File`, kein `previewUrl`).
-- [ ] `ComposerThreadDraftState` um `documents`, `nonPersistedDocumentIds`, `persistedDocumentAttachments` erweitern.
-- [ ] `composerDocumentDedupKey(doc)`: `${doc.name}|${doc.sizeBytes}|${doc.file.lastModified}`.
-- [ ] Actions: `addDocument(threadId, doc)`, `addDocuments(threadId, docs)`, `removeDocument(threadId, docId)` — Struktur 1:1 wie Images.
-- [ ] Persistenz: `PersistedComposerThreadDraftState` um `documents: Schema.optional(Schema.Array(PersistedComposerDocumentAttachment)).pipe(Schema.withDecodingDefault(() => []))` erweitern. **Keine** version-bump.
-- [ ] Hydration: `hydrateDocumentsFromPersisted` analog `hydrateImagesFromPersisted`, aber ohne `previewUrl`.
-
-### 10. ChatView + Composer UI (`apps/web/src/components/ChatView.tsx`)
-
-- [ ] Helper `CLIENT_DOCUMENT_MIME_WHITELIST` + `CLIENT_DOCUMENT_EXTENSION_WHITELIST` (Fallback bei leerem `file.type`).
-- [ ] `addComposerAttachments` (Zeile 2904) erweitern:
-  - Image-Branch unverändert.
-  - Neuer Doc-Branch vor dem Plaintext-Fallback: Wenn `runtimeMode !== "full-access"` → Toast "Document attachments require full-access runtime." → skip.
-  - Sonst MIME/Extension gegen Whitelist → size-check (10 MB) → count-check (8 total über images+docs+files) → `addComposerDocument`.
-  - Alte Plaintext-`composerFiles`-Branch bleibt für echte Textdateien, die NICHT in der Doc-Whitelist stehen (`.env.example`, beliebige `.ts` etc.).
-- [ ] Preview-Row: Document-Chips (Icon + Name + Remove-Button) neben Image-Thumbnails. Reuse bestehenden File-Chip aus `composerFiles` falls möglich.
-- [ ] `deriveComposerSendState`: `documentCount` ergänzen → Send-Button aktiv bei nur Dokument.
-- [ ] Send-Flow (Zeile 3140ff):
-  - `composerDocumentsSnapshot` parallel zu Images sammeln.
-  - `turnAttachmentsPromise`: Document-Uploads mit `readFileAsDataUrl` in `UploadChatAttachment[]` (Type `"document"`) einbinden.
-  - `optimisticAttachments`: Document-Form (ohne `previewUrl`).
-  - Documents NICHT in `fileContentPrefix`.
-- [ ] Thread-Clear: `setComposerDocuments([])` analog `setComposerFiles`.
-
-### 11. Message-Rendering (Timeline)
-
-- [ ] `apps/web/src/components/chat/MessagesTimeline.tsx` (oder wo `OrchestrationMessage.attachments` gerendert wird): neue Branch für `attachment.type === "document"` → Chip mit Icon + Name + Link `/attachments/{id}` (target \_blank).
-- [ ] Image-Rendering unverändert.
-
-### 12. Validierung
-
-- [ ] `bun fmt`
-- [ ] `bun lint`
-- [ ] `bun typecheck`
-- [ ] Manueller Smoke-Test:
-  - PDF droppen → senden → Agent liest Datei (Codex)
-  - Word-Datei droppen → senden → Agent liest (Codex)
-  - Selbes in Claude + Gemini → Prompt-Referenz sichtbar, Agent liest
-  - Oversize-PDF (>10 MB) → Fehler
-  - Mime-Spoof (PDF-MIME mit PNG-Bytes) → abgelehnt
-  - Reload mit gepastetem Doc im Composer-Draft → wird hydratisiert
-  - Thread-Wechsel → Doc-Attachments isoliert
-  - `runtimeMode = "approval-required"` → Doc-Upload disabled mit Tooltip
-  - Normalizer-Fehler nach erstem File-Write → kein verwaistes File
-
-## Folgetasks (bewusst NICHT in diesem Task)
-
-- HTTP-Upload-Endpoint für >10 MB Dokumente.
-- Lazy-Copy-to-Workspace für `approval-required`-Mode (damit Document-Upload dort funktioniert).
-- Attachment-GC / TTL.
-- Content-Disposition-Header + `?download=1`-Query an `/attachments/{id}`.
-- Server-seitige PDF→Text-Extraktion als Pre-Summary.
+- [x] `bun fmt`
+- [x] `bun lint`
+- [x] `bun typecheck`
+- [x] `bun run test`
+- [x] Manueller Smoke-Test:
+  - Turn starten, auf anderen Thread wechseln → Notification+Sound kommen.
+  - Turn starten, Tab minimieren/unfokussieren → Notification+Sound kommen.
+  - Turn starten, im aktiven Thread-Tab bleiben mit Fokus → **keine** Notification/Sound (Skip).
+  - Toggle off → nichts mehr.
+  - Toggle on bei vorher abgelehnter Permission → Toast mit Hinweis, trotzdem Sound-Only-Modus aktiv.
+  - Electron-Build (apps/desktop): Notification erscheint mit App-Name, nicht "Electron".
 
 ## Risiken (verbleibend)
 
-- **MIME-Spoofing trotz Sniffing**: Magic-Byte-Check stoppt naive Angriffe, aber ein böswillig konstruiertes PDF mit Office-Exploit kann weiterhin Code-Ausführung triggern — sobald der Agent die Datei öffnet. Mitigation: `danger-full-access` bleibt User-Choice; die Warn-Toast ("Document attachments require full-access runtime") macht das bewusst.
-- **Blob-URL-Leaks im Composer**: Dokumente haben keine, aber beim Übergang zwischen Images und Docs muss die Revocation-Logik der Images unverändert bleiben (nicht aus Versehen gemeinsam behandeln).
-- **WS-Frame-Size unter Node-Runtime (Desktop)**: Node `ws` erlaubt 100 MB, also kein Problem. Unter Bun-Runtime: 10 MB + Base64 ≈ 13.3 MB < 16 MB Default → passt.
+- **AudioContext autoplay**: try/catch verschluckt; User hat bereits interagiert (Turn gestartet).
+- **Electron Permission-Handler**: aktuell nicht gesetzt (Default-Allow). Falls irgendwann `setPermissionRequestHandler` hinzugefügt wird, muss `notifications` erlaubt bleiben.
+- **Race beim Thread-Titel**: Fallback-String abgedeckt.
+- **Mehrere Turns auf demselben Thread hintereinander**: `tag: threadId` ersetzt die vorherige Notification – akzeptabel.
+
+## Follow-ups (bewusst nicht in diesem Task)
+
+- Echtes Audio-Asset statt Oscillator.
+- Separate Sounds pro Status.
+- Server-seitige Preference-Sync (falls jemand 2+ Clients hat).
+- Anklickbare Notification → aktiviert Browser-Tab + navigiert zum Thread.
+
+## Ergebnis
+
+- **Geänderte/Neue Dateien:**
+  - `packages/contracts/src/settings.ts` — Feld `turnCompletionNotifications` in `ClientSettingsSchema` (Default `true`).
+  - `apps/web/src/lib/turnCompletionNotification.ts` — neu, Pure-Functions (`buildNotificationContent`, `shouldSuppressNotification`) + Side-Effects (`playCompletionSound`, `ensureNotificationPermission`, `showCompletionNotification`).
+  - `apps/web/src/lib/turnCompletionNotification.test.ts` — neu, 11 Vitest-Tests.
+  - `apps/web/src/routes/__root.tsx` — `useEffectEvent`-Handler `notifyTurnCompletionsFromBatch` im `EventRouter`, eingehängt am Ende von `applyEventBatch` (nach Recovery-Dedup).
+  - `apps/web/src/components/settings/SettingsPanels.tsx` — neuer `SettingsRow` "Completion notifications" inkl. Reset, plus Eintrag in `useSettingsRestore.changedSettingLabels`.
+- **Validierung:**
+  - `bun fmt` ✓, `bun lint` ✓ (keine neuen Warnings in geänderten Dateien), `bun typecheck` ✓, `npx turbo run test --filter=@codewithme/web` → 15/15 Tests grün (davon 11 neu).
+  - Manueller Smoke-Test: durch den User zu verifizieren (Electron + Browser, Permissions-Dialog, Skip-Verhalten).
+- **Bewertung:** Implementierung pragmatisch und in-Pattern. Pure-Logik ist testbar isoliert, Side-Effects sind schmale Wrapper. Keine neue Event-Subscription (an bestehenden `applyEventBatch` angedockt), daher kein Replay-Duplikat-Risiko. Sound via Web Audio Oscillator ist MVP – Upgrade auf echtes Audio-Asset bewusst als Follow-up vermerkt.
+
+## Notizen (wird beim Umsetzen gefüllt)
+
+- …

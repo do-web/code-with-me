@@ -28,8 +28,8 @@ describe("normalizeClaudeRateLimits", () => {
     const types = [
       ["five_hour", "Session"],
       ["seven_day", "Weekly"],
-      ["seven_day_opus", "Opus"],
-      ["seven_day_sonnet", "Sonnet"],
+      ["seven_day_opus", "Weekly Opus"],
+      ["seven_day_sonnet", "Weekly Sonnet"],
       ["overage", "Overage"],
     ] as const;
 
